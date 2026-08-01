@@ -1,0 +1,49 @@
+name: access_law_office
+description: "Access Law Firm hybrid mobile app — Virtual Lobby for clients, receptionists, and admins."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  provider: ^6.1.5+1
+  flutter_secure_storage: ^10.3.1
+  url_launcher: ^6.3.2
+  shared_preferences: ^2.5.5
+  google_fonts: ^8.2.1
+  intl: ^0.20.3
+  uuid: ^4.6.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.6
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/branding/logo.png
+  adaptive_icon_background: "#1C4F94"
+  adaptive_icon_foreground: assets/branding/logo.png
+  remove_alpha_ios: true
+
+flutter_native_splash:
+  color: "#1C4F94"
+  image: assets/branding/logo.png
+  android: true
+  ios: true
+  android_12:
+    color: "#1C4F94"
+    image: assets/branding/logo.png
+  fullscreen: true
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/logo.png
