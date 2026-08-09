@@ -1,0 +1,310 @@
+import 'dart:async';
+
+import '../models/client_models.dart';
+import 'app_backend.dart';
+import 'session_storage.dart';
+import 'wp_api_client.dart';
+import 'wp_config.dart';
+
+/// Production backend: WordPress REST API + MySQL (via WP) as source of truth.
+///
+/// Polls for streams so lobby/chat stay live without WebSockets.
+class WordpressBackend implements AppBackend {
+  WordpressBackend({
+    WpApiClient? client,
+    SessionStorage? storage,
+    this.pollInterval = const Duration(seconds: 2),
+  })  : _api = client ?? WpApiClient(),
+        _storage = storage ?? SessionStorage();
+
+  final WpApiClient _api;
+  final SessionStorage _storage;
+  final Duration pollInterval;
+
+  final Map<String, int> _visitByClient = {};
+
+  @override
+  bool get isRemote => true;
+
+  @override
+  Future<void> initialize() async {
+    final token = await _storage.getAccessToken();
+    if (token != null && token.isNotEmpty) {
+      _api.accessToken = token;
+    }
+  }
+
+  Future<void> _persistToken(String? token) async {
+    _api.accessToken = token;
+    if (token == null || token.isEmpty) {
+      await _storage.clearAccessToken();
+    } else {
+      await _storage.saveAccessToken(token);
+    }
+  }
+
+  // —— Client activation ——
+
+  @override
+  Future<ClientProfile> redeemActivationCode({
+    required String name,
+    required String email,
+    required String code,
+  }) async {
+    final data = await _api.post('/clients/activate', body: {
+      'name': name,
+      'email': email,
+      'code': code,
+    }) as Map<String, dynamic>;
+
+    final token = data['token'] as String?;
+    final clientMap = data['client'] as Map<String, dynamic>?;
+    if (token == null || clientMap == null) {
+      throw BackendException('Activation failed. Please try again.');
+    }
+    await _persistToken(token);
+    return ClientProfile.fromMap(clientMap['id'] as String, clientMap);
+  }
+
+  @override
+  Future<ClientProfile?> loadClient(String clientId) async {
+    try {
+      final data =
+          await _api.get('/clients/$clientId') as Map<String, dynamic>;
+      return ClientProfile.fromMap(clientId, data);
+    } on BackendException {
+      return null;
+    }
+  }
+
+  // —— Chat ——
+
+  @override
+  Stream<List<ChatMessage>> watchMessages(String threadId) async* {
+    yield await _fetchMessages(threadId);
+    yield* Stream.periodic(pollInterval)
+        .asyncMap((_) => _fetchMessages(threadId));
+  }
+
+  Future<List<ChatMessage>> _fetchMessages(String threadId) async {
+    final data = await _api.get('/threads/$threadId/messages')
+        as Map<String, dynamic>;
+    final items = (data['items'] as List<dynamic>? ?? const []);
+    return items.map((raw) {
+      final map = raw as Map<String, dynamic>;
+      return ChatMessage.fromMap(map['id'] as String, map);
+    }).toList();
+  }
+
+  @override
+  Future<void> sendMessage({
+    required String threadId,
+    required String senderId,
+    required String senderName,
+    required SenderRole senderRole,
+    required String body,
+    bool urgent = false,
+  }) async {
+    await _api.post('/threads/$threadId/messages', body: {
+      'body': body,
+      'urgent': urgent,
+    });
+  }
+
+  // —— Video lobby ——
+
+  @override
+  Stream<LobbyState> watchLobby(String clientId) async* {
+    yield await _fetchLobby(clientId);
+    yield* Stream.periodic(pollInterval).asyncMap((_) => _fetchLobby(clientId));
+  }
+
+  Future<LobbyState> _fetchLobby(String clientId) async {
+    final data = await _api.get('/lobby/clients/$clientId')
+        as Map<String, dynamic>;
+    final visitId = data['visitId'];
+    if (visitId != null) {
+      _visitByClient[clientId] = int.tryParse('$visitId') ?? 0;
+    }
+    return LobbyState.fromMap(clientId, data);
+  }
+
+  @override
+  Future<void> enterLobby(ClientProfile client) async {
+    final data = await _api.post('/lobby/clients/${client.id}')
+        as Map<String, dynamic>;
+    final visitId = data['visitId'];
+    if (visitId != null) {
+      _visitByClient[client.id] = int.tryParse('$visitId') ?? 0;
+    }
+  }
+
+  @override
+  Future<void> leaveLobby(String clientId) async {
+    await _api.post('/lobby/clients/$clientId/leave');
+    _visitByClient.remove(clientId);
+  }
+
+  @override
+  Future<void> setLobbyStatus(String clientId, LobbyStatus status) async {
+    var visitId = _visitByClient[clientId] ?? 0;
+    if (visitId == 0) {
+      final lobby = await _fetchLobby(clientId);
+      visitId = _visitByClient[clientId] ?? 0;
+      if (visitId == 0 && lobby.status == LobbyStatus.idle) {
+        throw BackendException('Client is not in the lobby.');
+      }
+    }
+
+    final action = switch (status) {
+      LobbyStatus.ready => 'ready',
+      LobbyStatus.withAttorney => 'transfer',
+      LobbyStatus.completed => 'complete',
+      LobbyStatus.idle => 'dismiss',
+      LobbyStatus.waiting => null,
+    };
+
+    if (action == null || visitId == 0) return;
+
+    await _api.post('/queue/$visitId/actions', body: {'action': action});
+  }
+
+  // —— Appointments ——
+
+  @override
+  Future<void> requestAppointment({
+    required ClientProfile client,
+    required String preferredWindow,
+    required String note,
+  }) async {
+    await _api.post('/appointments', body: {
+      'clientId': client.id,
+      'preferredWindow': preferredWindow,
+      'note': note,
+    });
+  }
+
+  @override
+  Stream<List<AppointmentRequest>> watchAppointments({String? clientId}) async* {
+    yield await _fetchAppointments(clientId);
+    yield* Stream.periodic(pollInterval)
+        .asyncMap((_) => _fetchAppointments(clientId));
+  }
+
+  Future<List<AppointmentRequest>> _fetchAppointments(String? clientId) async {
+    final query = clientId == null ? null : {'clientId': clientId};
+    final data =
+        await _api.get('/appointments', query: query) as Map<String, dynamic>;
+    final items = (data['items'] as List<dynamic>? ?? const []);
+    return items.map((raw) {
+      final map = raw as Map<String, dynamic>;
+      return AppointmentRequest.fromMap(map['id'] as String, map);
+    }).toList();
+  }
+
+  @override
+  Future<void> setAppointmentStatus(String id, AppointmentStatus status) async {
+    await _api.patch('/appointments/$id', body: {'status': status.name});
+  }
+
+  // —— Staff ——
+
+  @override
+  Future<StaffProfile?> staffSignIn(String email, String password) async {
+    final data = await _api.post('/auth/login', body: {
+      'email': email,
+      'username': email,
+      'password': password,
+    }) as Map<String, dynamic>;
+
+    final token = data['token'] as String?;
+    final staffMap = data['staff'] as Map<String, dynamic>?;
+    if (token == null || staffMap == null) {
+      return null;
+    }
+    await _persistToken(token);
+    return StaffProfile.fromMap(staffMap['id'] as String, staffMap);
+  }
+
+  @override
+  Stream<List<ClientProfile>> watchClients() async* {
+    yield await _fetchClients();
+    yield* Stream.periodic(pollInterval).asyncMap((_) => _fetchClients());
+  }
+
+  Future<List<ClientProfile>> _fetchClients() async {
+    final data = await _api.get('/clients') as Map<String, dynamic>;
+    final items = (data['items'] as List<dynamic>? ?? const []);
+    return items.map((raw) {
+      final map = raw as Map<String, dynamic>;
+      return ClientProfile.fromMap(map['id'] as String, map);
+    }).toList();
+  }
+
+  @override
+  Stream<List<ActivationCode>> watchActivationCodes() async* {
+    yield await _fetchCodes();
+    yield* Stream.periodic(pollInterval).asyncMap((_) => _fetchCodes());
+  }
+
+  Future<List<ActivationCode>> _fetchCodes() async {
+    final data =
+        await _api.get('/activation-codes') as Map<String, dynamic>;
+    final items = (data['items'] as List<dynamic>? ?? const []);
+    return items.map((raw) {
+      final map = raw as Map<String, dynamic>;
+      return ActivationCode.fromMap(map['code'] as String, map);
+    }).toList();
+  }
+
+  @override
+  Future<ActivationCode> createActivationCode(String email) async {
+    final data = await _api.post('/activation-codes', body: {
+      'email': email,
+    }) as Map<String, dynamic>;
+    return ActivationCode.fromMap(data['code'] as String, data);
+  }
+
+  @override
+  Future<void> saveZoomLinks({
+    required String receptionZoomUrl,
+    required String attorneyZoomUrl,
+  }) async {
+    await _api.put('/admin/settings', body: {
+      'receptionZoomUrl': receptionZoomUrl,
+      'attorneyZoomUrl': attorneyZoomUrl,
+    });
+  }
+
+  @override
+  Future<Map<String, String>> loadZoomLinks() async {
+    final data =
+        await _api.get('/admin/settings') as Map<String, dynamic>;
+    return {
+      'receptionZoomUrl': (data['receptionZoomUrl'] ?? '') as String,
+      'attorneyZoomUrl': (data['attorneyZoomUrl'] ?? '') as String,
+    };
+  }
+
+  @override
+  Future<void> registerPushToken(String ownerId, String token) async {
+    await _api.post('/device/register', body: {
+      'ownerId': ownerId,
+      'token': token,
+      'platform': 'mobile',
+    });
+  }
+
+  /// Clears the stored Bearer token (call on sign-out).
+  Future<void> signOut() async {
+    try {
+      await _api.post('/auth/logout');
+    } catch (_) {
+      // Best-effort.
+    }
+    await _persistToken(null);
+  }
+}
+
+/// Whether the app should prefer WordPress over Firebase/local.
+bool get useWordpressBackend => WpConfig.isConfigured;

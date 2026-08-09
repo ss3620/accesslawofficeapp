@@ -1,205 +1,247 @@
 import 'package:flutter/foundation.dart';
 
-import '../models/models.dart';
-import '../rbac/roles.dart';
-import '../services/mock_api.dart';
+import '../models/client_models.dart';
+import '../services/app_backend.dart';
+import '../services/push_service.dart';
 import '../services/session_storage.dart';
+import '../services/wordpress_backend.dart';
 
-enum AppPath { undecided, client, staff }
+enum SessionKind { none, client, staff }
 
 class AppState extends ChangeNotifier {
   AppState({
-    MockApi? api,
+    required this.backend,
     SessionStorage? storage,
-  })  : api = api ?? MockApi(),
-        storage = storage ?? SessionStorage();
+  })  : storage = storage ?? SessionStorage(),
+        push = PushService(backend);
 
-  final MockApi api;
+  final AppBackend backend;
   final SessionStorage storage;
+  final PushService push;
 
   bool bootstrapped = false;
-  AppPath path = AppPath.undecided;
-  AuthSession? staffSession;
-  ClientSession? clientSession;
-  LobbyConfig? config;
-  Visit? activeVisit;
-  List<Visit> queue = [];
-  List<StaffUser> staffUsers = [];
-  String? error;
+  ClientProfile? client;
+  StaffProfile? staff;
+  String? lastError;
 
-  // Client wizard draft
-  String draftName = '';
-  String draftPhone = '';
-  String draftCountry = '+1';
-  String draftMatter = '';
+  SessionKind get sessionKind {
+    if (client != null) return SessionKind.client;
+    if (staff != null) return SessionKind.staff;
+    return SessionKind.none;
+  }
 
-  AppRole? get role => staffSession?.user.role;
-  bool get isAdmin => role == AppRole.admin;
-  bool get isReceptionist =>
-      role == AppRole.receptionist || role == AppRole.admin;
-  bool can(Capability c) =>
-      role != null ? Rbac.can(role!, c) : false;
+  bool get usesLiveBackend => backend.isRemote;
 
   Future<void> bootstrap() async {
     try {
-      config = await api.getConfig();
-      final token = await storage.getStaffAccessToken();
-      if (token != null) {
-        final user = await api.me(token);
-        staffSession = AuthSession(
-          accessToken: token,
-          refreshToken: '',
-          user: user,
-        );
-        path = AppPath.staff;
-        await refreshQueue();
-        if (isAdmin) await refreshStaff();
-      } else {
-        final client = await storage.getClientSession();
-        if (client != null) {
-          clientSession = client;
-          path = AppPath.client;
-          activeVisit = await api.getVisit(client.visitId, client.token);
+      await backend.initialize();
+      final savedId = await storage.getClientId();
+      if (savedId != null) {
+        final profile = await backend.loadClient(savedId);
+        if (profile != null && profile.active) {
+          client = profile;
+          await push.start(profile.id);
+        } else {
+          await storage.clearClientId();
         }
       }
-    } catch (_) {
-      await storage.clearStaffSession();
-      await storage.clearClientSession();
+    } catch (error) {
+      debugPrint('Bootstrap failed: $error');
+      await storage.clearClientId();
     } finally {
       bootstrapped = true;
       notifyListeners();
     }
   }
 
-  Future<void> refreshConfig() async {
-    config = await api.getConfig();
-    notifyListeners();
-  }
+  // —— Client ——
 
-  void chooseClient() {
-    path = AppPath.client;
-    notifyListeners();
-  }
-
-  void chooseStaff() {
-    path = AppPath.staff;
-    notifyListeners();
-  }
-
-  void backToLaunch() {
-    path = AppPath.undecided;
-    notifyListeners();
-  }
-
-  Future<void> staffLogin(String username, String password) async {
-    error = null;
-    notifyListeners();
+  Future<void> activate({
+    required String name,
+    required String email,
+    required String code,
+  }) async {
+    lastError = null;
     try {
-      final session = await api.login(username.trim(), password);
-      staffSession = session;
-      path = AppPath.staff;
-      await storage.saveStaffSession(session);
-      await refreshQueue();
-      if (isAdmin) await refreshStaff();
+      final profile = await backend.redeemActivationCode(
+        name: name,
+        email: email,
+        code: code,
+      );
+      client = profile;
+      await storage.saveClientId(profile.id);
+      await push.start(profile.id);
       notifyListeners();
+    } on BackendException catch (e) {
+      lastError = e.message;
+      notifyListeners();
+      rethrow;
     } catch (e) {
-      error = e.toString().replaceFirst('Bad state: ', '');
+      lastError = 'Could not activate. Check your connection and try again.';
+      notifyListeners();
+      throw BackendException(lastError!);
+    }
+  }
+
+  Future<void> signOutClient() async {
+    client = null;
+    await storage.clearClientId();
+    final b = backend;
+    if (b is WordpressBackend) {
+      await b.signOut();
+    } else {
+      await storage.clearAccessToken();
+    }
+    notifyListeners();
+  }
+
+  Stream<List<ChatMessage>> clientMessages() {
+    final thread = client?.threadId;
+    if (thread == null) return const Stream.empty();
+    return backend.watchMessages(thread);
+  }
+
+  Stream<LobbyState> clientLobby() {
+    final id = client?.id;
+    if (id == null) return const Stream.empty();
+    return backend.watchLobby(id);
+  }
+
+  Future<void> sendClientMessage(String body, {bool urgent = false}) async {
+    final profile = client;
+    if (profile == null || body.trim().isEmpty) return;
+    await backend.sendMessage(
+      threadId: profile.threadId,
+      senderId: profile.id,
+      senderName: profile.name,
+      senderRole: SenderRole.client,
+      body: body.trim(),
+      urgent: urgent,
+    );
+  }
+
+  Future<void> enterLobby() async {
+    final profile = client;
+    if (profile == null) return;
+    await backend.enterLobby(profile);
+  }
+
+  Future<void> leaveLobby() async {
+    final profile = client;
+    if (profile == null) return;
+    await backend.leaveLobby(profile.id);
+  }
+
+  Future<void> requestAppointment({
+    required String preferredWindow,
+    required String note,
+  }) async {
+    final profile = client;
+    if (profile == null) return;
+    await backend.requestAppointment(
+      client: profile,
+      preferredWindow: preferredWindow,
+      note: note,
+    );
+  }
+
+  Stream<List<AppointmentRequest>> clientAppointments() {
+    final id = client?.id;
+    if (id == null) return const Stream.empty();
+    return backend.watchAppointments(clientId: id);
+  }
+
+  /// Emergency contact: posts an urgent, clearly flagged message the whole
+  /// staff thread sees. Deliberately notification-only (no live tracking).
+  Future<void> sendEmergencyAlert() async {
+    final profile = client;
+    if (profile == null) return;
+    await backend.sendMessage(
+      threadId: profile.threadId,
+      senderId: profile.id,
+      senderName: profile.name,
+      senderRole: SenderRole.client,
+      body:
+          'URGENT: ${profile.name} may be detained and needs immediate contact.',
+      urgent: true,
+    );
+  }
+
+  // —— Staff ——
+
+  Future<void> staffSignIn(String email, String password) async {
+    lastError = null;
+    try {
+      final profile = await backend.staffSignIn(email, password);
+      if (profile == null) {
+        lastError = 'Invalid email or password.';
+        notifyListeners();
+        throw BackendException(lastError!);
+      }
+      staff = profile;
+      await storage.saveStaffEmail(profile.email);
+      await push.start(profile.id);
+      notifyListeners();
+    } on BackendException catch (e) {
+      lastError = e.message;
       notifyListeners();
       rethrow;
     }
   }
 
-  Future<void> staffLogout() async {
-    staffSession = null;
-    queue = [];
-    await storage.clearStaffSession();
-    path = AppPath.undecided;
+  Future<void> staffSignOut() async {
+    staff = null;
+    await storage.clearStaffEmail();
+    final b = backend;
+    if (b is WordpressBackend) {
+      await b.signOut();
+    } else {
+      await storage.clearAccessToken();
+    }
     notifyListeners();
   }
 
-  Future<void> clientLogout() async {
-    activeVisit = null;
-    clientSession = null;
-    draftName = '';
-    draftPhone = '';
-    draftMatter = '';
-    await storage.clearClientSession();
-    path = AppPath.undecided;
-    notifyListeners();
-  }
+  Stream<List<ClientProfile>> staffClients() => backend.watchClients();
 
-  Future<Visit> submitCheckIn() async {
-    final phone = draftCountry == '+1'
-        ? '+1${draftPhone.replaceAll(RegExp(r'\D'), '')}'
-        : '+91${draftPhone.replaceAll(RegExp(r'\D'), '')}';
-    final visit = await api.checkIn(
-      fullName: draftName,
-      phone: phone,
-      matter: draftMatter,
+  Stream<List<ActivationCode>> staffCodes() => backend.watchActivationCodes();
+
+  Stream<List<AppointmentRequest>> staffAppointments() =>
+      backend.watchAppointments();
+
+  Stream<LobbyState> lobbyFor(String clientId) => backend.watchLobby(clientId);
+
+  Stream<List<ChatMessage>> threadFor(String threadId) =>
+      backend.watchMessages(threadId);
+
+  Future<void> sendStaffMessage(String threadId, String body) async {
+    final profile = staff;
+    if (profile == null || body.trim().isEmpty) return;
+    await backend.sendMessage(
+      threadId: threadId,
+      senderId: profile.id,
+      senderName: profile.name,
+      senderRole: profile.role.senderRole,
+      body: body.trim(),
     );
-    activeVisit = visit;
-    clientSession = ClientSession(visitId: visit.id, token: visit.token);
-    await storage.saveClientSession(clientSession!);
-    await refreshConfig();
-    notifyListeners();
-    return visit;
   }
 
-  Future<void> pollVisit() async {
-    final session = clientSession;
-    if (session == null) return;
-    activeVisit = await api.getVisit(session.visitId, session.token);
-    notifyListeners();
-  }
+  Future<void> setLobbyStatus(String clientId, LobbyStatus status) =>
+      backend.setLobbyStatus(clientId, status);
 
-  Future<void> markJoined() async {
-    final session = clientSession;
-    if (session == null) return;
-    activeVisit = await api.markJoined(session.visitId, session.token);
-    notifyListeners();
-  }
+  Future<ActivationCode> createActivationCode(String email) =>
+      backend.createActivationCode(email);
 
-  Future<void> refreshQueue() async {
-    queue = await api.getQueue();
-    config = await api.getConfig();
-    notifyListeners();
-  }
+  Future<Map<String, String>> loadZoomLinks() => backend.loadZoomLinks();
 
-  Future<void> runQueueAction(String visitId, QueueAction action) async {
-    await api.queueAction(visitId, action);
-    await refreshQueue();
-  }
+  Future<void> saveZoomLinks({
+    required String receptionZoomUrl,
+    required String attorneyZoomUrl,
+  }) =>
+      backend.saveZoomLinks(
+        receptionZoomUrl: receptionZoomUrl,
+        attorneyZoomUrl: attorneyZoomUrl,
+      );
 
-  Future<void> setLobbyOpen(bool open) async {
-    config = await api.toggleLobby(open);
-    notifyListeners();
-  }
-
-  Future<void> refreshStaff() async {
-    staffUsers = await api.listStaff();
-    notifyListeners();
-  }
-
-  Future<void> saveAdminSettings(LobbyConfig settings) async {
-    config = await api.updateAdminSettings(settings);
-    notifyListeners();
-  }
-
-  Future<void> createReceptionist({
-    required String username,
-    required String email,
-    required String password,
-  }) async {
-    await api.createReceptionist(
-      username: username,
-      email: email,
-      temporaryPassword: password,
-    );
-    await refreshStaff();
-  }
-
-  Future<void> deactivateStaff(String id) async {
-    await api.setStaffActive(id, false);
-    await refreshStaff();
-  }
+  Future<void> setAppointmentStatus(String id, AppointmentStatus status) =>
+      backend.setAppointmentStatus(id, status);
 }

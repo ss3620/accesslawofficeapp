@@ -1,29 +1,10 @@
-# Access Law Office — Flutter Mobile App
+# Access Law Firm — client app
 
-Hybrid mobile app (iOS + Android) for Access Law Office Virtual Lobby, built from [PRD-access-law-office-hybrid-app.md](../../PRD-access-law-office-hybrid-app.md).
+Flutter app (iOS + Android) for the firm's paying immigration clients:
+activation-code sign-in, a shared chat with the attorney and receptionist, a
+video lobby with a reception → attorney handoff, and appointment requests.
 
-## Stack
-
-- **Flutter 3.41** / Dart 3.11
-- **Provider** for app state
-- **flutter_secure_storage** for visit token + staff session
-- **url_launcher** for external Zoom join (Phase 1)
-- **Mock API** locally (swap later for WordPress `/wp-json/alf/v1/`)
-
-## Roles (one app binary)
-
-| Role | Entry | Home |
-|------|--------|------|
-| Client | Join Virtual Lobby | Check-in wizard → waiting room |
-| Receptionist | Staff sign in | Live queue |
-| Admin | Staff sign in | Queue + Zoom settings + staff users |
-
-## Demo credentials
-
-- Admin: `admin` / `admin123`
-- Receptionist: `receptionist` / `reception123`
-
-## Run
+## Running it
 
 ```bash
 cd apps/mobile
@@ -31,18 +12,55 @@ flutter pub get
 flutter run
 ```
 
-## MVP covered (P0 + P1)
+The app runs immediately with an **in-memory demo backend** — no Firebase
+project needed. Follow [`docs/FIREBASE_SETUP.md`](../../docs/FIREBASE_SETUP.md)
+to switch it to Firestore; the swap is automatic once real keys exist in
+`lib/services/firebase_options.dart`.
 
-- Launch gate: Join Lobby vs Staff sign in
-- Client: name → phone → verify → matter → wait → Join Zoom
-- Receptionist: queue Ready / Transfer / Complete / Dismiss + lobby toggle
-- Admin: Zoom URLs / meeting numbers / passcodes, feature flags, create receptionist
-- Session restore for active client visit and staff login
+### Demo walkthrough
 
-## Next phases
+| Step | How |
+|---|---|
+| Client sign-in | Any name + email, activation code `ALF-DEMO` |
+| Staff sign-in | "Firm staff sign in" → `reception@accesslawfirm.com` / `reception123` |
+| Attorney | `attorney@accesslawfirm.com` / `attorney123` |
+| Admin | `admin@accesslawfirm.com` / `admin123` |
 
-- Wire real WordPress REST API
-- Push notifications (FCM / APNs)
-- In-app messaging (Phase 2)
-- Twilio Voice (Phase 3)
-- Zoom Meeting SDK embed (Phase 1.5 / 4)
+Demo data lives in memory, so a client and a staff member must be used in the
+same app session to see each other.
+
+## What is in the app
+
+| Area | Screens |
+|---|---|
+| Client | Activation, home, chat, video lobby, appointment request, emergency alert |
+| Staff | Sign-in, client list with lobby controls, per-client chat, codes and settings |
+
+## Structure
+
+```
+lib/
+  models/client_models.dart      # Client, message, lobby, appointment types
+  services/app_backend.dart      # Backend interface
+  services/local_backend.dart    # In-memory demo backend
+  services/firebase_backend.dart # Firestore + Firebase Auth
+  services/push_service.dart     # FCM token registration
+  state/app_state.dart           # Session and data access
+  screens/                       # Client and staff screens
+  widgets/chat_view.dart         # Shared group-chat surface
+```
+
+Swapping backends happens in [`lib/main.dart`](lib/main.dart); every screen talks
+to `AppBackend`, never to Firestore directly.
+
+## Checks
+
+```bash
+flutter analyze
+flutter test
+```
+
+## Not included by design
+
+Payments, document uploads (both stay in Docketwise), embedded Zoom video (the
+app opens the Zoom app), the public non-client lobby, and location tracking.

@@ -1,50 +1,35 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import '../models/models.dart';
-
+/// Remembers who is signed in so clients are not asked for their activation
+/// code again after closing the app.
 class SessionStorage {
-  SessionStorage({
-    FlutterSecureStorage? secure,
-  }) : _secure = secure ?? const FlutterSecureStorage();
+  SessionStorage({FlutterSecureStorage? secure})
+      : _secure = secure ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _secure;
 
-  static const _kAccess = 'staff_access_token';
-  static const _kRefresh = 'staff_refresh_token';
-  static const _kVisitId = 'client_visit_id';
-  static const _kVisitToken = 'client_visit_token';
+  static const _kClientId = 'client_id';
+  static const _kStaffEmail = 'staff_email';
+  static const _kAccessToken = 'access_token';
 
-  Future<void> saveStaffSession(AuthSession session) async {
-    await _secure.write(key: _kAccess, value: session.accessToken);
-    await _secure.write(key: _kRefresh, value: session.refreshToken);
-  }
+  Future<void> saveClientId(String id) =>
+      _secure.write(key: _kClientId, value: id);
 
-  Future<String?> getStaffAccessToken() => _secure.read(key: _kAccess);
+  Future<String?> getClientId() => _secure.read(key: _kClientId);
 
-  Future<void> clearStaffSession() async {
-    await _secure.delete(key: _kAccess);
-    await _secure.delete(key: _kRefresh);
-  }
+  Future<void> clearClientId() => _secure.delete(key: _kClientId);
 
-  Future<void> saveClientSession(ClientSession session) async {
-    await _secure.write(key: _kVisitId, value: session.visitId);
-    await _secure.write(key: _kVisitToken, value: session.token);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_kVisitId, session.visitId);
-  }
+  Future<void> saveStaffEmail(String email) =>
+      _secure.write(key: _kStaffEmail, value: email);
 
-  Future<ClientSession?> getClientSession() async {
-    final id = await _secure.read(key: _kVisitId);
-    final token = await _secure.read(key: _kVisitToken);
-    if (id == null || token == null) return null;
-    return ClientSession(visitId: id, token: token);
-  }
+  Future<String?> getStaffEmail() => _secure.read(key: _kStaffEmail);
 
-  Future<void> clearClientSession() async {
-    await _secure.delete(key: _kVisitId);
-    await _secure.delete(key: _kVisitToken);
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_kVisitId);
-  }
+  Future<void> clearStaffEmail() => _secure.delete(key: _kStaffEmail);
+
+  Future<void> saveAccessToken(String token) =>
+      _secure.write(key: _kAccessToken, value: token);
+
+  Future<String?> getAccessToken() => _secure.read(key: _kAccessToken);
+
+  Future<void> clearAccessToken() => _secure.delete(key: _kAccessToken);
 }
