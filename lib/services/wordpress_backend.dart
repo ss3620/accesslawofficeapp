@@ -2,26 +2,30 @@ import 'dart:async';
 
 import '../models/client_models.dart';
 import 'app_backend.dart';
+import 'firebase_chat_service.dart';
 import 'session_storage.dart';
 import 'wp_api_client.dart';
 import 'wp_config.dart';
 
-/// Production backend: WordPress REST API + MySQL (via WP) as source of truth.
-///
-/// Polls for streams so lobby/chat stay live without WebSockets.
+/// WordPress for lobby / auth / appointments; optional Firebase for chat + push.
 class WordpressBackend implements AppBackend {
   WordpressBackend({
     WpApiClient? client,
     SessionStorage? storage,
+    FirebaseChatService? chat,
     this.pollInterval = const Duration(seconds: 2),
   })  : _api = client ?? WpApiClient(),
-        _storage = storage ?? SessionStorage();
+        _storage = storage ?? SessionStorage(),
+        _chat = chat;
 
   final WpApiClient _api;
   final SessionStorage _storage;
+  final FirebaseChatService? _chat;
   final Duration pollInterval;
 
   final Map<String, int> _visitByClient = {};
+
+  bool get usesFirebaseChat => _chat != null;
 
   @override
   bool get isRemote => true;
@@ -43,6 +47,16 @@ class WordpressBackend implements AppBackend {
     }
   }
 
+  Future<void> _bindClientChat(ClientProfile client) async {
+    final chat = _chat;
+    if (chat == null) return;
+    await chat.ensureClientSession(
+      wpClientId: client.id,
+      name: client.name,
+      email: client.email,
+    );
+  }
+
   // —— Client activation ——
 
   @override
@@ -51,6 +65,9 @@ class WordpressBackend implements AppBackend {
     required String email,
     required String code,
   }) async {
+    await _persistToken(null);
+    await _chat?.signOut();
+
     final data = await _api.post('/clients/activate', body: {
       'name': name,
       'email': email,
@@ -63,7 +80,30 @@ class WordpressBackend implements AppBackend {
       throw BackendException('Activation failed. Please try again.');
     }
     await _persistToken(token);
-    return ClientProfile.fromMap(clientMap['id'] as String, clientMap);
+    final client = ClientProfile.fromMap(clientMap['id'] as String, clientMap);
+    try {
+      await _bindClientChat(client);
+      final chat = _chat;
+      if (chat != null) {
+        await chat.sendMessage(
+          threadId: client.threadId,
+          senderId: 'system',
+          senderName: 'Access Law Firm',
+          senderRole: SenderRole.system,
+          body:
+              'Welcome ${client.name}. Your attorney and receptionist can see this chat. '
+              'Send a message any time and we will respond during office hours.',
+        );
+      }
+    } on BackendException {
+      rethrow;
+    } catch (error) {
+      throw BackendException(
+        'Account created, but chat could not start. Enable Anonymous sign-in '
+        'in Firebase Authentication. ($error)',
+      );
+    }
+    return client;
   }
 
   @override
@@ -71,7 +111,9 @@ class WordpressBackend implements AppBackend {
     try {
       final data =
           await _api.get('/clients/$clientId') as Map<String, dynamic>;
-      return ClientProfile.fromMap(clientId, data);
+      final client = ClientProfile.fromMap(clientId, data);
+      await _bindClientChat(client);
+      return client;
     } on BackendException {
       return null;
     }
@@ -80,7 +122,15 @@ class WordpressBackend implements AppBackend {
   // —— Chat ——
 
   @override
-  Stream<List<ChatMessage>> watchMessages(String threadId) async* {
+  Stream<List<ChatMessage>> watchMessages(String threadId) {
+    final chat = _chat;
+    if (chat != null) {
+      return chat.watchMessages(threadId);
+    }
+    return _watchMessagesFromWp(threadId);
+  }
+
+  Stream<List<ChatMessage>> _watchMessagesFromWp(String threadId) async* {
     yield await _fetchMessages(threadId);
     yield* Stream.periodic(pollInterval)
         .asyncMap((_) => _fetchMessages(threadId));
@@ -105,6 +155,18 @@ class WordpressBackend implements AppBackend {
     required String body,
     bool urgent = false,
   }) async {
+    final chat = _chat;
+    if (chat != null) {
+      await chat.sendMessage(
+        threadId: threadId,
+        senderId: senderId,
+        senderName: senderName,
+        senderRole: senderRole,
+        body: body,
+        urgent: urgent,
+      );
+      return;
+    }
     await _api.post('/threads/$threadId/messages', body: {
       'body': body,
       'urgent': urgent,
@@ -137,6 +199,16 @@ class WordpressBackend implements AppBackend {
     if (visitId != null) {
       _visitByClient[client.id] = int.tryParse('$visitId') ?? 0;
     }
+    final chat = _chat;
+    if (chat != null) {
+      await chat.sendMessage(
+        threadId: client.threadId,
+        senderId: 'system',
+        senderName: 'Access Law Firm',
+        senderRole: SenderRole.system,
+        body: '${client.name} entered the video lobby.',
+      );
+    }
   }
 
   @override
@@ -167,6 +239,22 @@ class WordpressBackend implements AppBackend {
     if (action == null || visitId == 0) return;
 
     await _api.post('/queue/$visitId/actions', body: {'action': action});
+
+    final chat = _chat;
+    if (chat == null || status == LobbyStatus.idle) return;
+    await chat.sendMessage(
+      threadId: clientId,
+      senderId: 'system',
+      senderName: 'Access Law Firm',
+      senderRole: SenderRole.system,
+      body: switch (status) {
+        LobbyStatus.ready => 'Your receptionist is ready. Join the video call.',
+        LobbyStatus.withAttorney =>
+          'You are being transferred. Your attorney is ready.',
+        LobbyStatus.completed => 'This session is complete.',
+        _ => 'Lobby updated.',
+      },
+    );
   }
 
   // —— Appointments ——
@@ -182,6 +270,16 @@ class WordpressBackend implements AppBackend {
       'preferredWindow': preferredWindow,
       'note': note,
     });
+    final chat = _chat;
+    if (chat != null) {
+      await chat.sendMessage(
+        threadId: client.threadId,
+        senderId: 'system',
+        senderName: 'Access Law Firm',
+        senderRole: SenderRole.system,
+        body: 'Appointment requested for $preferredWindow.',
+      );
+    }
   }
 
   @override
@@ -223,7 +321,18 @@ class WordpressBackend implements AppBackend {
       return null;
     }
     await _persistToken(token);
-    return StaffProfile.fromMap(staffMap['id'] as String, staffMap);
+    final staff = StaffProfile.fromMap(staffMap['id'] as String, staffMap);
+
+    final chat = _chat;
+    if (chat != null) {
+      await chat.ensureStaffSession(
+        email: email,
+        password: password,
+        displayName: staff.name,
+        role: staff.role,
+      );
+    }
+    return staff;
   }
 
   @override
@@ -288,6 +397,11 @@ class WordpressBackend implements AppBackend {
 
   @override
   Future<void> registerPushToken(String ownerId, String token) async {
+    final chat = _chat;
+    if (chat != null) {
+      await chat.registerPushToken(ownerId, token);
+      return;
+    }
     await _api.post('/device/register', body: {
       'ownerId': ownerId,
       'token': token,
@@ -295,13 +409,13 @@ class WordpressBackend implements AppBackend {
     });
   }
 
-  /// Clears the stored Bearer token (call on sign-out).
   Future<void> signOut() async {
     try {
       await _api.post('/auth/logout');
     } catch (_) {
       // Best-effort.
     }
+    await _chat?.signOut();
     await _persistToken(null);
   }
 }

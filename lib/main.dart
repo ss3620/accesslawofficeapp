@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'app.dart';
 import 'services/app_backend.dart';
 import 'services/firebase_backend.dart';
+import 'services/firebase_chat_service.dart';
 import 'services/firebase_options.dart';
 import 'services/local_backend.dart';
 import 'services/wordpress_backend.dart';
@@ -28,25 +29,40 @@ Future<void> main() async {
   );
 }
 
-/// Prefer WordPress when configured; otherwise Firebase; otherwise local demo.
+/// WordPress for lobby/auth when configured.
+/// Firebase for chat + push when configured (alongside WP, or alone).
 Future<AppBackend> _createBackend() async {
+  final firebaseOk = await _tryInitFirebase();
+
   if (useWordpressBackend) {
     debugPrint('Using WordPress backend at ${WpConfig.apiRoot}');
+    if (firebaseOk) {
+      debugPrint('Firebase chat + push enabled.');
+      return WordpressBackend(chat: FirebaseChatService());
+    }
+    debugPrint(
+      'Firebase not configured — chat falls back to WordPress polling (no push).',
+    );
     return WordpressBackend();
   }
 
-  if (!isFirebaseConfigured) {
+  if (!firebaseOk) {
     debugPrint('Firebase not configured — using the local demo backend.');
     return LocalBackend();
   }
+  return FirebaseBackend();
+}
+
+Future<bool> _tryInitFirebase() async {
+  if (!isFirebaseConfigured) return false;
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     FirebaseMessaging.onBackgroundMessage(_onBackgroundMessage);
-    return FirebaseBackend();
+    return true;
   } catch (error) {
-    debugPrint('Firebase init failed ($error) — falling back to local backend.');
-    return LocalBackend();
+    debugPrint('Firebase init failed ($error)');
+    return false;
   }
 }

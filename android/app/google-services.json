@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "205875883184",
+    "project_id": "access-law-firm",
+    "storage_bucket": "access-law-firm.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:205875883184:android:d65b93cdb51778d2d45f75",
+        "android_client_info": {
+          "package_name": "com.accesslawoffice.access_law_office"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "205875883184-2kl8dk55rm9fa58r5k8b64b3bph5h374.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.accesslawoffice.access_law_office",
+            "certificate_hash": "161fa63257cc5daa60395bc08d8bbe25f059e303"
+          }
+        },
+        {
+          "client_id": "205875883184-mqps674a2rbk8qna8dkc2seu6q6pcj5q.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBxZGyUdh7Zy2wXGtza6CWayxxGb-R03yA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "205875883184-ema6rd6tqoog8jvo255qbpk1ccemu6ku.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
