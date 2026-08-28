@@ -227,6 +227,9 @@ class LobbyState {
 }
 
 class AppointmentRequest {
+  const sourceApp = 'app';
+  const sourceWebsite = 'website';
+
   const AppointmentRequest({
     required this.id,
     required this.clientId,
@@ -235,6 +238,10 @@ class AppointmentRequest {
     required this.note,
     required this.status,
     required this.createdAt,
+    this.source = sourceApp,
+    this.email = '',
+    this.phone = '',
+    this.visitId,
   });
 
   final String id;
@@ -244,6 +251,14 @@ class AppointmentRequest {
   final String note;
   final AppointmentStatus status;
   final DateTime createdAt;
+  final String source;
+  final String email;
+  final String phone;
+  final String? visitId;
+
+  bool get isWebsite => source == sourceWebsite;
+
+  String get sourceLabel => isWebsite ? 'Website' : 'App';
 
   factory AppointmentRequest.fromMap(String id, Map<String, dynamic> map) {
     return AppointmentRequest(
@@ -255,6 +270,10 @@ class AppointmentRequest {
       status:
           AppointmentStatus.fromName((map['status'] ?? 'requested') as String),
       createdAt: _toDate(map['createdAt']),
+      source: (map['source'] ?? sourceApp) as String,
+      email: (map['email'] ?? '') as String,
+      phone: (map['phone'] ?? '') as String,
+      visitId: map['visitId'] as String?,
     );
   }
 
@@ -264,6 +283,10 @@ class AppointmentRequest {
         'preferredWindow': preferredWindow,
         'note': note,
         'status': status.name,
+        'source': source,
+        'email': email,
+        'phone': phone,
+        'visitId': visitId,
       };
 }
 

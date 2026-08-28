@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../app.dart';
@@ -21,7 +22,7 @@ class StaffHomeScreen extends StatelessWidget {
     }
 
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         backgroundColor: AppColors.cream,
         appBar: AppBar(
@@ -29,6 +30,7 @@ class StaffHomeScreen extends StatelessWidget {
           bottom: const TabBar(
             tabs: [
               Tab(text: 'Live queue'),
+              Tab(text: 'Appointments'),
               Tab(text: 'App clients'),
             ],
           ),
@@ -56,6 +58,7 @@ class StaffHomeScreen extends StatelessWidget {
         body: TabBarView(
           children: [
             _LiveQueueTab(state: state),
+            _AppointmentsTab(state: state),
             _AppClientsTab(state: state),
           ],
         ),
@@ -273,6 +276,142 @@ class _QueueVisitRow extends StatelessWidget {
                     label: 'Open chat',
                     onTap: () => _openChat(context),
                   ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AppointmentsTab extends StatelessWidget {
+  const _AppointmentsTab({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollScreenBody(
+      child: StreamBuilder<List<AppointmentRequest>>(
+        stream: state.staffAppointments(),
+        builder: (context, snapshot) {
+          final requests = snapshot.data ?? const <AppointmentRequest>[];
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (requests.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  'No appointment requests yet. They appear here when a client '
+                  'uses the app or completes the website Virtual Lobby wizard.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: requests.length,
+            itemBuilder: (context, index) =>
+                _AppointmentRow(request: requests[index]),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AppointmentRow extends StatelessWidget {
+  const _AppointmentRow({required this.request});
+
+  final AppointmentRequest request;
+
+  Future<void> _setStatus(
+    BuildContext context,
+    AppointmentStatus status,
+  ) async {
+    try {
+      await context.read<AppState>().setAppointmentStatus(request.id, status);
+    } on BackendException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SectionCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    request.clientName,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                StatusPill(
+                  label: request.sourceLabel,
+                  color: request.isWebsite ? AppColors.waiting : AppColors.navy,
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              request.preferredWindow,
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+            if (request.phone.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text('Phone: ${request.phone}'),
+            ],
+            if (request.email.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text('Email: ${request.email}'),
+            ],
+            if (request.note.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(request.note),
+            ],
+            const SizedBox(height: 6),
+            Text(
+              DateFormat('MMM d, h:mm a').format(request.createdAt),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                StatusPill(
+                  label: request.status.label,
+                  color: switch (request.status) {
+                    AppointmentStatus.confirmed => AppColors.success,
+                    AppointmentStatus.declined => AppColors.danger,
+                    AppointmentStatus.requested => AppColors.waiting,
+                  },
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () =>
+                      _setStatus(context, AppointmentStatus.confirmed),
+                  child: const Text('Confirm'),
+                ),
+                TextButton(
+                  onPressed: () =>
+                      _setStatus(context, AppointmentStatus.declined),
+                  child: const Text('Decline'),
+                ),
               ],
             ),
           ],

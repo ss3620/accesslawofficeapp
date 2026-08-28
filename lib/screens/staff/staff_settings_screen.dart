@@ -217,6 +217,13 @@ class _StaffSettingsScreenState extends State<StaffSettingsScreen> {
                                   style:
                                       Theme.of(context).textTheme.titleMedium,
                                 ),
+                                const SizedBox(height: 4),
+                                StatusPill(
+                                  label: request.sourceLabel,
+                                  color: request.isWebsite
+                                      ? AppColors.waiting
+                                      : AppColors.navy,
+                                ),
                                 if (request.note.isNotEmpty) ...[
                                   const SizedBox(height: 4),
                                   Text(request.note),
