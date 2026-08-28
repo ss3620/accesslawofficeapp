@@ -8,12 +8,7 @@ import '../models/client_models.dart';
 /// again after closing the app.
 class SessionStorage {
   SessionStorage({FlutterSecureStorage? secure})
-      : _secure = secure ??
-            const FlutterSecureStorage(
-              iOptions: IOSOptions(
-                accessibility: KeychainAccessibility.first_unlock_this_device,
-              ),
-            );
+      : _secure = secure ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _secure;
 

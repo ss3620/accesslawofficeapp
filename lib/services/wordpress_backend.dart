@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/client_models.dart';
 import 'app_backend.dart';
 import 'firebase_chat_service.dart';
@@ -345,29 +347,44 @@ class WordpressBackend implements AppBackend {
   @override
   Future<StaffProfile?> staffSignIn(String email, String password) async {
     final data = await _api.post('/auth/login', body: {
-      'email': email,
-      'username': email,
+      'email': email.trim(),
+      'username': email.trim(),
       'password': password,
     }) as Map<String, dynamic>;
 
     final token = data['token'] as String?;
-    final staffMap = data['staff'] as Map<String, dynamic>?;
-    if (token == null || staffMap == null) {
+    final staffMap = data['staff'] is Map<String, dynamic>
+        ? data['staff'] as Map<String, dynamic>
+        : null;
+    final id = staffMap?['id']?.toString();
+    if (token == null ||
+        token.isEmpty ||
+        staffMap == null ||
+        id == null ||
+        id.isEmpty) {
       return null;
     }
     await _persistToken(token);
-    final staff = StaffProfile.fromMap(staffMap['id'] as String, staffMap);
-    await _storage.saveStaffProfile(staff);
-    await _storage.saveStaffEmail(staff.email);
+    final staff = StaffProfile.fromMap(id, staffMap);
+    try {
+      await _storage.saveStaffProfile(staff);
+      await _storage.saveStaffEmail(staff.email);
+    } catch (error) {
+      debugPrint('Could not persist staff session: $error');
+    }
 
     final chat = _chat;
     if (chat != null) {
-      await chat.ensureStaffSession(
-        email: email,
-        password: password,
-        displayName: staff.name,
-        role: staff.role,
-      );
+      try {
+        await chat.ensureStaffSession(
+          email: email.trim(),
+          password: password,
+          displayName: staff.name,
+          role: staff.role,
+        );
+      } catch (error) {
+        debugPrint('Firebase staff chat session skipped: $error');
+      }
     }
     return staff;
   }
@@ -397,18 +414,7 @@ class WordpressBackend implements AppBackend {
       }
     }
 
-    return cached ?? _staffFromEmail(savedEmail);
-  }
-
-  StaffProfile? _staffFromEmail(String? email) {
-    if (email == null || email.trim().isEmpty) return null;
-    final normalized = email.trim().toLowerCase();
-    return StaffProfile(
-      id: normalized,
-      name: normalized,
-      email: normalized,
-      role: StaffRole.receptionist,
-    );
+    return cached;
   }
 
   @override

@@ -207,10 +207,12 @@ class AppState extends ChangeNotifier {
         throw BackendException(lastError!);
       }
       staff = profile;
-      client = null;
-      await storage.clearClientId();
-      await storage.saveStaffEmail(profile.email);
-      await storage.saveStaffProfile(profile);
+      try {
+        await storage.saveStaffEmail(profile.email);
+        await storage.saveStaffProfile(profile);
+      } catch (error) {
+        debugPrint('Could not persist staff session: $error');
+      }
       await push.start(profile.id);
       notifyListeners();
     } on BackendException catch (e) {
