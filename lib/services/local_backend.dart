@@ -372,6 +372,17 @@ class LocalBackend implements AppBackend {
   }
 
   @override
+  Future<StaffProfile?> restoreStaffSession({String? savedEmail}) async {
+    if (savedEmail == null || savedEmail.trim().isEmpty) return null;
+    final normalized = savedEmail.trim().toLowerCase();
+    try {
+      return _staff.values.firstWhere((s) => s.email == normalized);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  @override
   Stream<List<ClientProfile>> watchClients() {
     scheduleMicrotask(_pushClients);
     return _clientsCtrl.stream;

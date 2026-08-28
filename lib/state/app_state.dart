@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/client_models.dart';
 import '../services/app_backend.dart';
+import '../services/firebase_backend.dart';
 import '../services/push_service.dart';
 import '../services/session_storage.dart';
 import '../services/wordpress_backend.dart';
@@ -35,22 +36,46 @@ class AppState extends ChangeNotifier {
   Future<void> bootstrap() async {
     try {
       await backend.initialize();
-      final savedId = await storage.getClientId();
-      if (savedId != null) {
-        final profile = await backend.loadClient(savedId);
-        if (profile != null && profile.active) {
-          client = profile;
-          await push.start(profile.id);
-        } else {
-          await storage.clearClientId();
-        }
+      await _restoreClient();
+      if (client == null) {
+        await _restoreStaff();
       }
     } catch (error) {
       debugPrint('Bootstrap failed: $error');
-      await storage.clearClientId();
     } finally {
       bootstrapped = true;
       notifyListeners();
+    }
+  }
+
+  Future<void> _restoreClient() async {
+    final savedId = await storage.getClientId();
+    if (savedId == null) return;
+    try {
+      final profile = await backend.loadClient(savedId);
+      if (profile != null && profile.active) {
+        client = profile;
+        await push.start(profile.id);
+      } else {
+        await storage.clearClientId();
+      }
+    } catch (error) {
+      debugPrint('Client restore failed: $error');
+    }
+  }
+
+  Future<void> _restoreStaff() async {
+    try {
+      final restored = await backend.restoreStaffSession(
+        savedEmail: await storage.getStaffEmail(),
+      );
+      if (restored == null) return;
+      staff = restored;
+      await storage.saveStaffEmail(restored.email);
+      await storage.saveStaffProfile(restored);
+      await push.start(restored.id);
+    } catch (error) {
+      debugPrint('Staff restore failed: $error');
     }
   }
 
@@ -69,7 +94,10 @@ class AppState extends ChangeNotifier {
         code: code,
       );
       client = profile;
+      staff = null;
       await storage.saveClientId(profile.id);
+      await storage.clearStaffEmail();
+      await storage.clearStaffProfile();
       await push.start(profile.id);
       notifyListeners();
     } on BackendException catch (e) {
@@ -179,7 +207,10 @@ class AppState extends ChangeNotifier {
         throw BackendException(lastError!);
       }
       staff = profile;
+      client = null;
+      await storage.clearClientId();
       await storage.saveStaffEmail(profile.email);
+      await storage.saveStaffProfile(profile);
       await push.start(profile.id);
       notifyListeners();
     } on BackendException catch (e) {
@@ -191,12 +222,12 @@ class AppState extends ChangeNotifier {
 
   Future<void> staffSignOut() async {
     staff = null;
-    await storage.clearStaffEmail();
+    await storage.clearStaffSession();
     final b = backend;
     if (b is WordpressBackend) {
       await b.signOut();
-    } else {
-      await storage.clearAccessToken();
+    } else if (b is FirebaseBackend) {
+      await b.signOut();
     }
     notifyListeners();
   }

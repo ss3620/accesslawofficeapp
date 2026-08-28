@@ -27,8 +27,24 @@ class StaffHomeScreen extends StatelessWidget {
         backgroundColor: AppColors.cream,
         appBar: AppBar(
           title: Text('${staff.role.label} desk'),
-          bottom: const TabBar(
-            tabs: [
+          bottom: TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: const Color(0xFFD7E0EA),
+            indicatorColor: AppColors.gold,
+            indicatorWeight: 3,
+            dividerColor: Colors.transparent,
+            overlayColor: WidgetStateProperty.all(
+              Colors.white.withValues(alpha: 0.08),
+            ),
+            labelStyle: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
+            tabs: const [
               Tab(text: 'Live queue'),
               Tab(text: 'Appointments'),
               Tab(text: 'App clients'),

@@ -67,6 +67,10 @@ abstract class AppBackend {
 
   Future<StaffProfile?> staffSignIn(String email, String password);
 
+  /// Restores a previously signed-in staff member (token / Firebase user /
+  /// saved email). Returns null if nobody is still signed in.
+  Future<StaffProfile?> restoreStaffSession({String? savedEmail});
+
   Stream<List<ClientProfile>> watchClients();
 
   Stream<List<ActivationCode>> watchActivationCodes();

@@ -111,5 +111,19 @@ void main() {
       );
       expect(bad, isNull);
     });
+
+    test('staff stay signed in after restore', () async {
+      final signedIn = await backend.staffSignIn(
+        'reception@accesslawfirm.com',
+        'reception123',
+      );
+      expect(signedIn, isNotNull);
+
+      final restored = await backend.restoreStaffSession(
+        savedEmail: 'reception@accesslawfirm.com',
+      );
+      expect(restored?.id, signedIn!.id);
+      expect(restored?.role, StaffRole.receptionist);
+    });
   });
 }

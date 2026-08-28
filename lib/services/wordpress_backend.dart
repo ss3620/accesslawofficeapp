@@ -357,6 +357,8 @@ class WordpressBackend implements AppBackend {
     }
     await _persistToken(token);
     final staff = StaffProfile.fromMap(staffMap['id'] as String, staffMap);
+    await _storage.saveStaffProfile(staff);
+    await _storage.saveStaffEmail(staff.email);
 
     final chat = _chat;
     if (chat != null) {
@@ -368,6 +370,45 @@ class WordpressBackend implements AppBackend {
       );
     }
     return staff;
+  }
+
+  @override
+  Future<StaffProfile?> restoreStaffSession({String? savedEmail}) async {
+    final token = await _storage.getAccessToken();
+    if (token == null || token.isEmpty) return null;
+    _api.accessToken = token;
+
+    final cached = await _storage.getStaffProfile();
+    for (final path in ['/auth/me', '/staff/me']) {
+      try {
+        final data = await _api.get(path) as Map<String, dynamic>;
+        final raw = data['staff'] is Map<String, dynamic>
+            ? data['staff'] as Map<String, dynamic>
+            : data;
+        final id = (raw['id'] ?? savedEmail ?? '').toString();
+        if (id.isEmpty || raw['email'] == null && raw['name'] == null) {
+          continue;
+        }
+        final staff = StaffProfile.fromMap(id, raw);
+        await _storage.saveStaffProfile(staff);
+        return staff;
+      } on BackendException {
+        continue;
+      }
+    }
+
+    return cached ?? _staffFromEmail(savedEmail);
+  }
+
+  StaffProfile? _staffFromEmail(String? email) {
+    if (email == null || email.trim().isEmpty) return null;
+    final normalized = email.trim().toLowerCase();
+    return StaffProfile(
+      id: normalized,
+      name: normalized,
+      email: normalized,
+      role: StaffRole.receptionist,
+    );
   }
 
   @override
@@ -452,6 +493,7 @@ class WordpressBackend implements AppBackend {
     }
     await _chat?.signOut();
     await _persistToken(null);
+    await _storage.clearStaffSession();
   }
 }
 

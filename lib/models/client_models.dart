@@ -427,6 +427,13 @@ class StaffProfile {
       role: StaffRole.fromName((map['role'] ?? 'receptionist') as String),
     );
   }
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'name': name,
+        'email': email,
+        'role': role.name,
+      };
 }
 
 DateTime _toDate(Object? value) {

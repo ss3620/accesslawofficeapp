@@ -297,6 +297,17 @@ class FirebaseBackend implements AppBackend {
   }
 
   @override
+  Future<StaffProfile?> restoreStaffSession({String? savedEmail}) async {
+    final user = _auth.currentUser;
+    if (user == null) return null;
+    final snap = await _db.collection(staffCollection).doc(user.uid).get();
+    if (!snap.exists || snap.data() == null) return null;
+    return StaffProfile.fromMap(user.uid, snap.data()!);
+  }
+
+  Future<void> signOut() => _auth.signOut();
+
+  @override
   Stream<List<ClientProfile>> watchClients() {
     return _db
         .collection(clientsCollection)
