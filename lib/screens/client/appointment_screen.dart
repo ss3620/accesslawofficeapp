@@ -57,10 +57,11 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Request an appointment')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
+      body: ScrollScreenBody(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
             Text(
               'When works for you?',
               style: Theme.of(context).textTheme.headlineSmall,
@@ -166,7 +167,8 @@ class _AppointmentScreenState extends State<AppointmentScreen> {
                 );
               },
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );

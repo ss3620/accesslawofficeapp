@@ -14,6 +14,7 @@ abstract final class AppTheme {
         secondary: AppColors.gold,
         surface: AppColors.surface,
         error: AppColors.danger,
+        surfaceTint: Colors.transparent,
       ),
     );
 
@@ -67,6 +68,7 @@ abstract final class AppTheme {
       appBarTheme: AppBarTheme(
         backgroundColor: AppColors.navy,
         foregroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         centerTitle: false,
         titleTextStyle: GoogleFonts.libreBaskerville(

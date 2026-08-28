@@ -185,6 +185,30 @@ class PrimaryButton extends StatelessWidget {
   }
 }
 
+/// Keeps a solid background behind scroll views so iOS overscroll does not
+/// flash the default grey Material canvas.
+class ScrollScreenBody extends StatelessWidget {
+  const ScrollScreenBody({
+    super.key,
+    required this.child,
+    this.backgroundColor = AppColors.cream,
+  });
+
+  final Widget child;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ColoredBox(color: backgroundColor),
+        child,
+      ],
+    );
+  }
+}
+
 class ScreenScaffold extends StatelessWidget {
   const ScreenScaffold({
     super.key,

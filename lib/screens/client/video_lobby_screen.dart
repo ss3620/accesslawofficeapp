@@ -42,16 +42,17 @@ class VideoLobbyScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Video lobby')),
-      body: SafeArea(
-        child: StreamBuilder<LobbyState>(
-          stream: state.clientLobby(),
-          builder: (context, snapshot) {
-            final lobby = snapshot.data;
-            if (lobby == null) {
-              return const Center(child: CircularProgressIndicator());
-            }
+      body: ScrollScreenBody(
+        child: SafeArea(
+          child: StreamBuilder<LobbyState>(
+            stream: state.clientLobby(),
+            builder: (context, snapshot) {
+              final lobby = snapshot.data;
+              if (lobby == null) {
+                return const Center(child: CircularProgressIndicator());
+              }
 
-            return ListView(
+              return ListView(
               padding: const EdgeInsets.all(20),
               children: [
                 SectionCard(
@@ -112,9 +113,10 @@ class VideoLobbyScreen extends StatelessWidget {
                     label: 'Back to home',
                     onPressed: () => Navigator.of(context).pop(),
                   ),
-              ],
-            );
-          },
+                ],
+              );
+            },
+          ),
         ),
       ),
     );

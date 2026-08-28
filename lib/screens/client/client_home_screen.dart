@@ -51,6 +51,7 @@ class ClientHomeScreen extends StatelessWidget {
     }
 
     return Scaffold(
+      backgroundColor: AppColors.cream,
       appBar: AppBar(
         title: const Text('Access Law Firm'),
         actions: [
@@ -68,57 +69,59 @@ class ClientHomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
-            Text(
-              'Hello, ${client.name.split(' ').first}',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'Your attorney and receptionist share one thread with you. '
-              'No case updates are ever sent in a notification.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 20),
-            _LobbyBanner(clientId: client.id),
-            const SizedBox(height: 16),
-            _ActionTile(
-              icon: Icons.forum_outlined,
-              title: 'Message my legal team',
-              subtitle: 'Attorney and reception in one chat',
-              onTap: () => Navigator.of(context).pushNamed(Routes.chat),
-            ),
-            _ActionTile(
-              icon: Icons.videocam_outlined,
-              title: 'Video lobby',
-              subtitle: 'Check in now and wait to be seen',
-              onTap: () => Navigator.of(context).pushNamed(Routes.videoLobby),
-            ),
-            _ActionTile(
-              icon: Icons.event_available_outlined,
-              title: 'Request an appointment',
-              subtitle: 'Ask for a time or if the attorney is free now',
-              onTap: () => Navigator.of(context).pushNamed(Routes.appointment),
-            ),
-            const SizedBox(height: 22),
-            OutlinedButton.icon(
-              onPressed: () => _confirmEmergency(context),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppColors.danger,
-                side: const BorderSide(color: AppColors.danger, width: 1.4),
+      body: ScrollScreenBody(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
+              Text(
+                'Hello, ${client.name.split(' ').first}',
+                style: Theme.of(context).textTheme.headlineMedium,
               ),
-              icon: const Icon(Icons.priority_high),
-              label: const Text('I am about to be detained'),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Documents and invoices stay in Docketwise — check your email for those.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ],
+              const SizedBox(height: 6),
+              Text(
+                'Your attorney and receptionist share one thread with you. '
+                'No case updates are ever sent in a notification.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 20),
+              _LobbyBanner(clientId: client.id),
+              const SizedBox(height: 16),
+              _ActionTile(
+                icon: Icons.forum_outlined,
+                title: 'Message my legal team',
+                subtitle: 'Attorney and reception in one chat',
+                onTap: () => Navigator.of(context).pushNamed(Routes.chat),
+              ),
+              _ActionTile(
+                icon: Icons.videocam_outlined,
+                title: 'Video lobby',
+                subtitle: 'Check in now and wait to be seen',
+                onTap: () => Navigator.of(context).pushNamed(Routes.videoLobby),
+              ),
+              _ActionTile(
+                icon: Icons.event_available_outlined,
+                title: 'Request an appointment',
+                subtitle: 'Ask for a time or if the attorney is free now',
+                onTap: () => Navigator.of(context).pushNamed(Routes.appointment),
+              ),
+              const SizedBox(height: 22),
+              OutlinedButton.icon(
+                onPressed: () => _confirmEmergency(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppColors.danger,
+                  side: const BorderSide(color: AppColors.danger, width: 1.4),
+                ),
+                icon: const Icon(Icons.priority_high),
+                label: const Text('I am about to be detained'),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                'Documents and invoices stay in Docketwise — check your email for those.',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+          ),
         ),
       ),
     );

@@ -73,22 +73,25 @@ class _ChatViewState extends State<ChatView> {
     return Column(
       children: [
         Expanded(
-          child: widget.loading
-              ? const Center(child: CircularProgressIndicator())
-              : widget.messages.isEmpty
-                  ? const _EmptyChat()
-                  : ListView.builder(
-                      controller: _scrollController,
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                      itemCount: widget.messages.length,
-                      itemBuilder: (context, index) {
-                        return _MessageBubble(
-                          message: widget.messages[index],
-                          isMine:
-                              widget.messages[index].senderRole == widget.currentRole,
-                        );
-                      },
-                    ),
+          child: ColoredBox(
+            color: AppColors.cream,
+            child: widget.loading
+                ? const Center(child: CircularProgressIndicator())
+                : widget.messages.isEmpty
+                    ? const _EmptyChat()
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        itemCount: widget.messages.length,
+                        itemBuilder: (context, index) {
+                          return _MessageBubble(
+                            message: widget.messages[index],
+                            isMine: widget.messages[index].senderRole ==
+                                widget.currentRole,
+                          );
+                        },
+                      ),
+          ),
         ),
         SafeArea(
           top: false,

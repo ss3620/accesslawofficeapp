@@ -52,10 +52,11 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Staff sign in')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
-          children: [
+      body: ScrollScreenBody(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
             const BrandHeader(compact: true),
             const SizedBox(height: 20),
             Form(
@@ -114,7 +115,7 @@ class _StaffLoginScreenState extends State<StaffLoginScreen> {
                 ),
               ),
             ],
-          ],
+          ),
         ),
       ),
     );

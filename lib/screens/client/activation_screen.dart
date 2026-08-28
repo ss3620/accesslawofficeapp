@@ -58,16 +58,21 @@ class _ActivationScreenState extends State<ActivationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [AppColors.navy, AppColors.navyMid, Color(0xFF0A1628)],
+      backgroundColor: const Color(0xFF0A1628),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [AppColors.navy, AppColors.navyMid, Color(0xFF0A1628)],
+              ),
+            ),
           ),
-        ),
-        child: SafeArea(
-          child: ListView(
+          SafeArea(
+            child: ListView(
             padding: const EdgeInsets.fromLTRB(28, 32, 28, 32),
             children: [
               const BrandHeader(light: true),
@@ -157,6 +162,7 @@ class _ActivationScreenState extends State<ActivationScreen> {
             ],
           ),
         ),
+        ],
       ),
     );
   }

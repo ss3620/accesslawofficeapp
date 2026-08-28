@@ -43,35 +43,37 @@ class StaffHomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: SafeArea(
-        child: StreamBuilder<List<ClientProfile>>(
-          stream: state.staffClients(),
-          builder: (context, snapshot) {
-            final clients = snapshot.data ?? const <ClientProfile>[];
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (clients.isEmpty) {
-              return Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Text(
-                    'No activated clients yet. Create an activation code from settings '
-                    'after a client pays through Docketwise.',
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium,
+      body: ScrollScreenBody(
+        child: SafeArea(
+          child: StreamBuilder<List<ClientProfile>>(
+            stream: state.staffClients(),
+            builder: (context, snapshot) {
+              final clients = snapshot.data ?? const <ClientProfile>[];
+              if (snapshot.connectionState == ConnectionState.waiting &&
+                  !snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (clients.isEmpty) {
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text(
+                      'No activated clients yet. Create an activation code from settings '
+                      'after a client pays through Docketwise.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
                   ),
-                ),
+                );
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(16),
+                itemCount: clients.length,
+                itemBuilder: (context, index) =>
+                    _ClientRow(client: clients[index]),
               );
-            }
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: clients.length,
-              itemBuilder: (context, index) =>
-                  _ClientRow(client: clients[index]),
-            );
-          },
+            },
+          ),
         ),
       ),
     );

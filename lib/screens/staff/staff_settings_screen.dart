@@ -104,10 +104,11 @@ class _StaffSettingsScreenState extends State<StaffSettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('Codes & settings')),
-      body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(20),
-          children: [
+      body: ScrollScreenBody(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(20),
+            children: [
             Text('Meeting rooms',
                 style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 10),
@@ -267,7 +268,8 @@ class _StaffSettingsScreenState extends State<StaffSettingsScreen> {
                 );
               },
             ),
-          ],
+            ],
+          ),
         ),
       ),
     );
