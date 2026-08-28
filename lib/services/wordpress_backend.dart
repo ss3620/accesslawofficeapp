@@ -238,22 +238,57 @@ class WordpressBackend implements AppBackend {
 
     if (action == null || visitId == 0) return;
 
+    await setQueueAction(
+      visitId: visitId,
+      action: action,
+      appClientId: clientId,
+    );
+  }
+
+  @override
+  Stream<LobbyQueueSnapshot> watchQueue() async* {
+    yield await _fetchQueue();
+    yield* Stream.periodic(pollInterval).asyncMap((_) => _fetchQueue());
+  }
+
+  Future<LobbyQueueSnapshot> _fetchQueue() async {
+    final data = await _api.get('/queue') as Map<String, dynamic>;
+    final snapshot = LobbyQueueSnapshot.fromMap(data);
+    for (final visit in snapshot.items) {
+      final clientId = visit.appClientId;
+      if (clientId != null && clientId.isNotEmpty) {
+        _visitByClient[clientId] = visit.id;
+      }
+    }
+    return snapshot;
+  }
+
+  @override
+  Future<void> setQueueAction({
+    required int visitId,
+    required String action,
+    String? appClientId,
+  }) async {
     await _api.post('/queue/$visitId/actions', body: {'action': action});
 
     final chat = _chat;
-    if (chat == null || status == LobbyStatus.idle) return;
+    final clientId = appClientId;
+    if (chat == null || clientId == null || clientId.isEmpty) return;
+
+    final body = switch (action) {
+      'ready' => 'Your receptionist is ready. Join the video call.',
+      'transfer' => 'You are being transferred. Your attorney is ready.',
+      'complete' => 'This session is complete.',
+      _ => null,
+    };
+    if (body == null) return;
+
     await chat.sendMessage(
       threadId: clientId,
       senderId: 'system',
       senderName: 'Access Law Firm',
       senderRole: SenderRole.system,
-      body: switch (status) {
-        LobbyStatus.ready => 'Your receptionist is ready. Join the video call.',
-        LobbyStatus.withAttorney =>
-          'You are being transferred. Your attorney is ready.',
-        LobbyStatus.completed => 'This session is complete.',
-        _ => 'Lobby updated.',
-      },
+      body: body,
     );
   }
 

@@ -215,6 +215,17 @@ class FirebaseBackend implements AppBackend {
     );
   }
 
+  @override
+  Stream<LobbyQueueSnapshot> watchQueue() =>
+      Stream.value(LobbyQueueSnapshot.empty());
+
+  @override
+  Future<void> setQueueAction({
+    required int visitId,
+    required String action,
+    String? appClientId,
+  }) async {}
+
   // —— Appointments ——
 
   @override

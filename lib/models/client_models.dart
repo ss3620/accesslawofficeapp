@@ -293,6 +293,94 @@ class ActivationCode {
   }
 }
 
+/// WordPress Virtual Lobby queue row (`alf_lobby_visit`) — website or app.
+enum QueueVisitStatus {
+  waiting,
+  ready,
+  inMeeting,
+  withAttorney;
+
+  String get label => switch (this) {
+        QueueVisitStatus.waiting => 'Waiting',
+        QueueVisitStatus.ready => 'Reception ready',
+        QueueVisitStatus.inMeeting => 'In reception',
+        QueueVisitStatus.withAttorney => 'Attorney ready',
+      };
+
+  static QueueVisitStatus fromWordPress(String value) {
+    return switch (value) {
+      'ready' => QueueVisitStatus.ready,
+      'in_meeting' => QueueVisitStatus.inMeeting,
+      'with_attorney' => QueueVisitStatus.withAttorney,
+      _ => QueueVisitStatus.waiting,
+    };
+  }
+}
+
+class QueueVisit {
+  const QueueVisit({
+    required this.id,
+    required this.name,
+    required this.phone,
+    required this.matter,
+    required this.status,
+    required this.statusLabel,
+    required this.positionLabel,
+    required this.waitLabel,
+    this.appClientId,
+  });
+
+  final int id;
+  final String name;
+  final String phone;
+  final String matter;
+  final QueueVisitStatus status;
+  final String statusLabel;
+  final String positionLabel;
+  final String waitLabel;
+  final String? appClientId;
+
+  bool get isAppClient => appClientId != null && appClientId!.isNotEmpty;
+
+  factory QueueVisit.fromMap(Map<String, dynamic> map) {
+    final position = map['position'];
+    return QueueVisit(
+      id: (map['id'] as num).toInt(),
+      name: (map['name'] ?? '') as String,
+      phone: (map['phone'] ?? '—') as String,
+      matter: (map['matter'] ?? '') as String,
+      status: QueueVisitStatus.fromWordPress((map['status'] ?? 'waiting') as String),
+      statusLabel: (map['status_label'] ?? map['status'] ?? '') as String,
+      positionLabel: position is num ? '#${position.toInt()}' : (position?.toString() ?? '—'),
+      waitLabel: (map['wait'] ?? '') as String,
+      appClientId: map['app_client_id'] as String?,
+    );
+  }
+}
+
+class LobbyQueueSnapshot {
+  const LobbyQueueSnapshot({
+    required this.items,
+    required this.lobbyOpen,
+  });
+
+  final List<QueueVisit> items;
+  final bool lobbyOpen;
+
+  factory LobbyQueueSnapshot.empty() =>
+      const LobbyQueueSnapshot(items: [], lobbyOpen: true);
+
+  factory LobbyQueueSnapshot.fromMap(Map<String, dynamic> map) {
+    final items = (map['items'] as List<dynamic>? ?? const [])
+        .map((raw) => QueueVisit.fromMap(raw as Map<String, dynamic>))
+        .toList();
+    return LobbyQueueSnapshot(
+      items: items,
+      lobbyOpen: (map['lobby_open'] ?? true) as bool,
+    );
+  }
+}
+
 class StaffProfile {
   const StaffProfile({
     required this.id,

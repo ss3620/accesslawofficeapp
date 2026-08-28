@@ -42,6 +42,15 @@ abstract class AppBackend {
 
   Future<void> setLobbyStatus(String clientId, LobbyStatus status);
 
+  /// Full Virtual Lobby queue (website visitors + app clients checked in).
+  Stream<LobbyQueueSnapshot> watchQueue();
+
+  Future<void> setQueueAction({
+    required int visitId,
+    required String action,
+    String? appClientId,
+  });
+
   // —— Appointments ——
 
   Future<void> requestAppointment({

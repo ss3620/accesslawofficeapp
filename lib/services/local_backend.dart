@@ -259,6 +259,60 @@ class LocalBackend implements AppBackend {
   }
 
   @override
+  Stream<LobbyQueueSnapshot> watchQueue() async* {
+    yield _buildQueueSnapshot();
+  }
+
+  LobbyQueueSnapshot _buildQueueSnapshot() {
+    final items = <QueueVisit>[];
+    var visitId = 1;
+    for (final entry in _lobbies.entries) {
+      final lobby = entry.value;
+      if (lobby.status == LobbyStatus.idle) continue;
+      final client = _clients[entry.key];
+      final status = switch (lobby.status) {
+        LobbyStatus.waiting => QueueVisitStatus.waiting,
+        LobbyStatus.ready => QueueVisitStatus.ready,
+        LobbyStatus.withAttorney => QueueVisitStatus.withAttorney,
+        _ => QueueVisitStatus.inMeeting,
+      };
+      items.add(
+        QueueVisit(
+          id: visitId++,
+          name: client?.name ?? 'Visitor',
+          phone: '—',
+          matter: client == null ? 'Website visitor' : 'App client',
+          status: status,
+          statusLabel: status.label,
+          positionLabel: lobby.position > 0 ? '#${lobby.position}' : '—',
+          waitLabel: '',
+          appClientId: client?.id,
+        ),
+      );
+    }
+    return LobbyQueueSnapshot(items: items, lobbyOpen: true);
+  }
+
+  @override
+  Future<void> setQueueAction({
+    required int visitId,
+    required String action,
+    String? appClientId,
+  }) async {
+    if (appClientId == null) return;
+    final status = switch (action) {
+      'ready' => LobbyStatus.ready,
+      'transfer' => LobbyStatus.withAttorney,
+      'complete' => LobbyStatus.completed,
+      'dismiss' => LobbyStatus.idle,
+      _ => null,
+    };
+    if (status != null) {
+      await setLobbyStatus(appClientId, status);
+    }
+  }
+
+  @override
   Future<void> requestAppointment({
     required ClientProfile client,
     required String preferredWindow,

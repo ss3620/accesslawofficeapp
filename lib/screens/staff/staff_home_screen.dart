@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../app.dart';
 import '../../models/client_models.dart';
+import '../../services/app_backend.dart';
 import '../../state/app_state.dart';
 import '../../theme/colors.dart';
 import '../../widgets/common.dart';
@@ -19,62 +20,304 @@ class StaffHomeScreen extends StatelessWidget {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('${staff.role.label} desk'),
-        actions: [
-          IconButton(
-            tooltip: 'Codes and settings',
-            icon: const Icon(Icons.settings_outlined),
-            onPressed: () =>
-                Navigator.of(context).pushNamed(Routes.staffSettings),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        backgroundColor: AppColors.cream,
+        appBar: AppBar(
+          title: Text('${staff.role.label} desk'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Live queue'),
+              Tab(text: 'App clients'),
+            ],
           ),
-          IconButton(
-            tooltip: 'Sign out',
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await context.read<AppState>().staffSignOut();
-              if (!context.mounted) return;
-              Navigator.of(context).pushNamedAndRemoveUntil(
-                Routes.activation,
-                (route) => false,
-              );
-            },
-          ),
-        ],
+          actions: [
+            IconButton(
+              tooltip: 'Codes and settings',
+              icon: const Icon(Icons.settings_outlined),
+              onPressed: () =>
+                  Navigator.of(context).pushNamed(Routes.staffSettings),
+            ),
+            IconButton(
+              tooltip: 'Sign out',
+              icon: const Icon(Icons.logout),
+              onPressed: () async {
+                await context.read<AppState>().staffSignOut();
+                if (!context.mounted) return;
+                Navigator.of(context).pushNamedAndRemoveUntil(
+                  Routes.activation,
+                  (route) => false,
+                );
+              },
+            ),
+          ],
+        ),
+        body: TabBarView(
+          children: [
+            _LiveQueueTab(state: state),
+            _AppClientsTab(state: state),
+          ],
+        ),
       ),
-      body: ScrollScreenBody(
-        child: SafeArea(
-          child: StreamBuilder<List<ClientProfile>>(
-            stream: state.staffClients(),
-            builder: (context, snapshot) {
-              final clients = snapshot.data ?? const <ClientProfile>[];
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              if (clients.isEmpty) {
-                return Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Text(
-                      'No activated clients yet. Create an activation code from settings '
-                      'after a client pays through Docketwise.',
+    );
+  }
+}
+
+class _LiveQueueTab extends StatelessWidget {
+  const _LiveQueueTab({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollScreenBody(
+      child: StreamBuilder<LobbyQueueSnapshot>(
+        stream: state.staffQueue(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+
+          final queue = snapshot.data ?? LobbyQueueSnapshot.empty();
+
+          if (!state.usesLiveBackend) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  'Live queue syncs with the website when the app uses WordPress.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            );
+          }
+
+          if (queue.items.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (!queue.lobbyOpen) ...[
+                      const StatusPill(
+                        label: 'Lobby closed',
+                        color: AppColors.danger,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    Text(
+                      queue.lobbyOpen
+                          ? 'No one is waiting in the Virtual Lobby right now.'
+                          : 'The Virtual Lobby is closed on the website.',
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.bodyMedium,
                     ),
+                  ],
+                ),
+              ),
+            );
+          }
+
+          return ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              if (!queue.lobbyOpen)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12),
+                  child: StatusPill(
+                    label: 'Lobby closed on website',
+                    color: AppColors.danger,
                   ),
-                );
-              }
-              return ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: clients.length,
-                itemBuilder: (context, index) =>
-                    _ClientRow(client: clients[index]),
-              );
-            },
-          ),
+                ),
+              ...queue.items.map(
+                (visit) => _QueueVisitRow(
+                  visit: visit,
+                  state: state,
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _QueueVisitRow extends StatelessWidget {
+  const _QueueVisitRow({
+    required this.visit,
+    required this.state,
+  });
+
+  final QueueVisit visit;
+  final AppState state;
+
+  Color _statusColor(QueueVisitStatus status) => switch (status) {
+        QueueVisitStatus.waiting => AppColors.waiting,
+        QueueVisitStatus.ready => AppColors.ready,
+        QueueVisitStatus.inMeeting => AppColors.inMeeting,
+        QueueVisitStatus.withAttorney => AppColors.attorney,
+      };
+
+  Future<void> _runAction(
+    BuildContext context,
+    String action,
+  ) async {
+    try {
+      await context.read<AppState>().setQueueAction(visit, action);
+    } on BackendException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    }
+  }
+
+  Future<void> _openChat(BuildContext context) async {
+    final clientId = visit.appClientId;
+    if (clientId == null) return;
+
+    final profile = await context.read<AppState>().backend.loadClient(clientId);
+    if (!context.mounted || profile == null) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not open app client chat.')),
+        );
+      }
+      return;
+    }
+    Navigator.of(context).pushNamed(
+      Routes.staffClient,
+      arguments: profile,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SectionCard(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    visit.name,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                StatusPill(
+                  label: visit.statusLabel,
+                  color: _statusColor(visit.status),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              visit.isAppClient ? 'Mobile app client' : 'Website visitor',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            if (visit.matter.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text('Matter: ${visit.matter}'),
+            ],
+            if (visit.phone.isNotEmpty && visit.phone != '—') ...[
+              const SizedBox(height: 4),
+              Text('Phone: ${visit.phone}'),
+            ],
+            if (visit.status == QueueVisitStatus.waiting) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Position ${visit.positionLabel}'
+                '${visit.waitLabel.isNotEmpty ? ' · ${visit.waitLabel}' : ''}',
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                if (visit.status == QueueVisitStatus.waiting)
+                  _ActionChip(
+                    label: 'Ready',
+                    onTap: () => _runAction(context, 'ready'),
+                  ),
+                if (visit.status == QueueVisitStatus.ready ||
+                    visit.status == QueueVisitStatus.inMeeting)
+                  _ActionChip(
+                    label: 'Transfer to attorney',
+                    onTap: () => _runAction(context, 'transfer'),
+                  ),
+                if (visit.status != QueueVisitStatus.waiting)
+                  _ActionChip(
+                    label: 'Complete',
+                    onTap: () => _runAction(context, 'complete'),
+                  ),
+                if (visit.status == QueueVisitStatus.waiting)
+                  _ActionChip(
+                    label: 'Dismiss',
+                    onTap: () => _runAction(context, 'dismiss'),
+                  ),
+                if (visit.isAppClient)
+                  _ActionChip(
+                    label: 'Open chat',
+                    onTap: () => _openChat(context),
+                  ),
+              ],
+            ),
+          ],
         ),
+      ),
+    );
+  }
+}
+
+class _AppClientsTab extends StatelessWidget {
+  const _AppClientsTab({required this.state});
+
+  final AppState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return ScrollScreenBody(
+      child: StreamBuilder<List<ClientProfile>>(
+        stream: state.staffClients(),
+        builder: (context, snapshot) {
+          final clients = snapshot.data ?? const <ClientProfile>[];
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (clients.isEmpty) {
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Text(
+                  'No activated clients yet. Create an activation code from settings '
+                  'after a client pays through Docketwise.',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ),
+            );
+          }
+          return ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: clients.length,
+            itemBuilder: (context, index) =>
+                _ClientRow(client: clients[index]),
+          );
+        },
       ),
     );
   }
@@ -91,6 +334,20 @@ class _ClientRow extends StatelessWidget {
         LobbyStatus.withAttorney => AppColors.attorney,
         _ => AppColors.muted,
       };
+
+  Future<void> _runLobbyAction(
+    BuildContext context,
+    LobbyStatus status,
+  ) async {
+    try {
+      await context.read<AppState>().setLobbyStatus(client.id, status);
+    } on BackendException catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.message)),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -129,22 +386,21 @@ class _ClientRow extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    _Action(
+                    _ActionChip(
                       label: 'Ready',
-                      onTap: () => state.setLobbyStatus(
-                          client.id, LobbyStatus.ready),
+                      onTap: () => _runLobbyAction(context, LobbyStatus.ready),
                     ),
-                    _Action(
+                    _ActionChip(
                       label: 'Transfer to attorney',
-                      onTap: () => state.setLobbyStatus(
-                          client.id, LobbyStatus.withAttorney),
+                      onTap: () =>
+                          _runLobbyAction(context, LobbyStatus.withAttorney),
                     ),
-                    _Action(
+                    _ActionChip(
                       label: 'Complete',
-                      onTap: () => state.setLobbyStatus(
-                          client.id, LobbyStatus.completed),
+                      onTap: () =>
+                          _runLobbyAction(context, LobbyStatus.completed),
                     ),
-                    _Action(
+                    _ActionChip(
                       label: 'Open chat',
                       onTap: () => Navigator.of(context).pushNamed(
                         Routes.staffClient,
@@ -162,8 +418,8 @@ class _ClientRow extends StatelessWidget {
   }
 }
 
-class _Action extends StatelessWidget {
-  const _Action({required this.label, required this.onTap});
+class _ActionChip extends StatelessWidget {
+  const _ActionChip({required this.label, required this.onTap});
 
   final String label;
   final VoidCallback onTap;

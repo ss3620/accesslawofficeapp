@@ -228,6 +228,15 @@ class AppState extends ChangeNotifier {
   Future<void> setLobbyStatus(String clientId, LobbyStatus status) =>
       backend.setLobbyStatus(clientId, status);
 
+  Stream<LobbyQueueSnapshot> staffQueue() => backend.watchQueue();
+
+  Future<void> setQueueAction(QueueVisit visit, String action) =>
+      backend.setQueueAction(
+        visitId: visit.id,
+        action: action,
+        appClientId: visit.appClientId,
+      );
+
   Future<ActivationCode> createActivationCode(String email) =>
       backend.createActivationCode(email);
 
