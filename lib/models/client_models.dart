@@ -227,8 +227,8 @@ class LobbyState {
 }
 
 class AppointmentRequest {
-  const sourceApp = 'app';
-  const sourceWebsite = 'website';
+  static const sourceApp = 'app';
+  static const sourceWebsite = 'website';
 
   const AppointmentRequest({
     required this.id,
