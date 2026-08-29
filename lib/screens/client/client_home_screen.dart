@@ -102,7 +102,7 @@ class ClientHomeScreen extends StatelessWidget {
               _ActionTile(
                 icon: Icons.event_available_outlined,
                 title: 'Request an appointment',
-                subtitle: 'Ask for a time or if the attorney is free now',
+                subtitle: '30-minute times from 9:00 AM to 4:00 PM',
                 onTap: () => Navigator.of(context).pushNamed(Routes.appointment),
               ),
               const SizedBox(height: 22),

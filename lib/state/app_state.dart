@@ -24,6 +24,8 @@ class AppState extends ChangeNotifier {
   ClientProfile? client;
   StaffProfile? staff;
   String? lastError;
+  final Map<String, int> unreadByThread = {};
+  final Map<String, DateTime> _lastReadCache = {};
 
   SessionKind get sessionKind {
     if (client != null) return SessionKind.client;
@@ -32,6 +34,60 @@ class AppState extends ChangeNotifier {
   }
 
   bool get usesLiveBackend => backend.isRemote;
+
+  int unreadCountFor(String threadId) => unreadByThread[threadId] ?? 0;
+
+  int get totalClientUnread =>
+      unreadByThread.values.fold(0, (sum, count) => sum + count);
+
+  static int countUnreadClientMessages(
+    List<ChatMessage> messages,
+    DateTime? lastRead,
+  ) {
+    return messages.where((message) {
+      if (message.senderRole != SenderRole.client) return false;
+      if (lastRead == null) return true;
+      return message.createdAt.isAfter(lastRead);
+    }).length;
+  }
+
+  Future<void> updateUnreadForThread(
+    String threadId,
+    List<ChatMessage> messages,
+  ) async {
+    final lastRead =
+        _lastReadCache[threadId] ?? await storage.getStaffLastRead(threadId);
+    if (lastRead != null) _lastReadCache[threadId] = lastRead;
+    final count = countUnreadClientMessages(messages, lastRead);
+    if (unreadByThread[threadId] == count) return;
+    unreadByThread[threadId] = count;
+    notifyListeners();
+  }
+
+  Future<void> markThreadRead(
+    String threadId, {
+    List<ChatMessage>? messages,
+  }) async {
+    var stamp = DateTime.now();
+    if (messages != null && messages.isNotEmpty) {
+      final latest = messages
+          .map((message) => message.createdAt)
+          .reduce((a, b) => a.isAfter(b) ? a : b);
+      if (latest.isAfter(stamp)) stamp = latest;
+      stamp = stamp.add(const Duration(milliseconds: 500));
+    }
+    _lastReadCache[threadId] = stamp;
+    await storage.setStaffLastRead(threadId, stamp);
+    if (unreadByThread[threadId] == 0) return;
+    unreadByThread[threadId] = 0;
+    notifyListeners();
+  }
+
+  void clearUnread(String threadId) {
+    if (!unreadByThread.containsKey(threadId)) return;
+    unreadByThread.remove(threadId);
+    notifyListeners();
+  }
 
   Future<void> bootstrap() async {
     try {
@@ -224,6 +280,8 @@ class AppState extends ChangeNotifier {
 
   Future<void> staffSignOut() async {
     staff = null;
+    unreadByThread.clear();
+    _lastReadCache.clear();
     await storage.clearStaffSession();
     final b = backend;
     if (b is WordpressBackend) {

@@ -63,4 +63,29 @@ class SessionStorage {
     await clearStaffProfile();
     await clearAccessToken();
   }
+
+  static const _kStaffLastRead = 'staff_last_read';
+
+  Future<Map<String, String>> _staffLastReadMap() async {
+    final raw = await _secure.read(key: _kStaffLastRead);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      return decoded.map((key, value) => MapEntry('$key', '$value'));
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<DateTime?> getStaffLastRead(String threadId) async {
+    final raw = (await _staffLastReadMap())[threadId];
+    return raw == null ? null : DateTime.tryParse(raw);
+  }
+
+  Future<void> setStaffLastRead(String threadId, DateTime at) async {
+    final map = await _staffLastReadMap();
+    map[threadId] = at.toIso8601String();
+    await _secure.write(key: _kStaffLastRead, value: jsonEncode(map));
+  }
 }
