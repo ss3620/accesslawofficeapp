@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/client_models.dart';
 import '../services/app_backend.dart';
@@ -26,6 +27,8 @@ class AppState extends ChangeNotifier {
   String? lastError;
   final Map<String, int> unreadByThread = {};
   final Map<String, DateTime> _lastReadCache = {};
+  bool notifyMessages = true;
+  bool notifyAppointments = true;
 
   SessionKind get sessionKind {
     if (client != null) return SessionKind.client;
@@ -91,6 +94,7 @@ class AppState extends ChangeNotifier {
 
   Future<void> bootstrap() async {
     try {
+      await _loadAlertPrefs();
       await backend.initialize();
       await _restoreClient();
       if (client == null) {
@@ -102,6 +106,67 @@ class AppState extends ChangeNotifier {
       bootstrapped = true;
       notifyListeners();
     }
+  }
+
+  Future<void> _loadAlertPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    notifyMessages = prefs.getBool('notify_messages') ?? true;
+    notifyAppointments = prefs.getBool('notify_appointments') ?? true;
+  }
+
+  Future<void> setNotifyMessages(bool value) async {
+    notifyMessages = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notify_messages', value);
+    if (value) await push.requestPermission();
+    notifyListeners();
+  }
+
+  Future<void> setNotifyAppointments(bool value) async {
+    notifyAppointments = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notify_appointments', value);
+    if (value) await push.requestPermission();
+    notifyListeners();
+  }
+
+  Future<void> notifyNewMessage({required String fromName}) async {
+    if (!notifyMessages) return;
+    await push.showAlert(
+      kind: AlertKind.message,
+      title: 'New message',
+      body: '$fromName sent a message.',
+    );
+  }
+
+  Future<void> notifyNewAppointment({
+    required String clientName,
+    required String window,
+  }) async {
+    if (!notifyAppointments) return;
+    await push.showAlert(
+      kind: AlertKind.appointment,
+      title: 'New appointment request',
+      body: '$clientName asked for $window.',
+    );
+  }
+
+  Future<void> notifyAppointmentUpdate({required String window, required String status}) async {
+    if (!notifyAppointments) return;
+    await push.showAlert(
+      kind: AlertKind.appointment,
+      title: 'Appointment update',
+      body: '$window was $status.',
+    );
+  }
+
+  Future<void> notifyStaffReply() async {
+    if (!notifyMessages) return;
+    await push.showAlert(
+      kind: AlertKind.message,
+      title: 'New message',
+      body: 'Your legal team sent a message.',
+    );
   }
 
   Future<void> _restoreClient() async {

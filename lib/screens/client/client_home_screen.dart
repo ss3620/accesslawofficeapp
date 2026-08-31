@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +8,7 @@ import '../../models/client_models.dart';
 import '../../state/app_state.dart';
 import '../../theme/colors.dart';
 import '../../widgets/common.dart';
+import '../../widgets/notification_settings_card.dart';
 
 class ClientHomeScreen extends StatelessWidget {
   const ClientHomeScreen({super.key});
@@ -69,7 +72,9 @@ class ClientHomeScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: ScrollScreenBody(
+      body: Stack(
+        children: [
+          ScrollScreenBody(
         child: SafeArea(
           child: ListView(
             padding: const EdgeInsets.all(20),
@@ -86,6 +91,8 @@ class ClientHomeScreen extends StatelessWidget {
               ),
               const SizedBox(height: 20),
               _LobbyBanner(clientId: client.id),
+              const SizedBox(height: 16),
+              const NotificationSettingsCard(),
               const SizedBox(height: 16),
               _ActionTile(
                 icon: Icons.forum_outlined,
@@ -123,9 +130,87 @@ class ClientHomeScreen extends StatelessWidget {
             ],
           ),
         ),
+          ),
+          _ClientAlertListener(),
+        ],
       ),
     );
   }
+}
+
+class _ClientAlertListener extends StatefulWidget {
+  @override
+  State<_ClientAlertListener> createState() => _ClientAlertListenerState();
+}
+
+class _ClientAlertListenerState extends State<_ClientAlertListener> {
+  StreamSubscription<List<ChatMessage>>? _messagesSub;
+  StreamSubscription<List<AppointmentRequest>>? _appointmentsSub;
+  String? _lastStaffMessageId;
+  bool _messagesPrimed = false;
+  final Map<String, AppointmentStatus> _appointmentStatus = {};
+  bool _appointmentsPrimed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final state = context.read<AppState>();
+    _messagesSub = state.clientMessages().listen(_onMessages);
+    _appointmentsSub = state.clientAppointments().listen(_onAppointments);
+  }
+
+  @override
+  void dispose() {
+    _messagesSub?.cancel();
+    _appointmentsSub?.cancel();
+    super.dispose();
+  }
+
+  void _onMessages(List<ChatMessage> messages) {
+    ChatMessage? latestStaff;
+    for (final message in messages.reversed) {
+      if (message.senderRole == SenderRole.client) continue;
+      if (message.senderRole == SenderRole.system) continue;
+      latestStaff = message;
+      break;
+    }
+    final latestId = latestStaff?.id;
+    if (!_messagesPrimed) {
+      _messagesPrimed = true;
+      _lastStaffMessageId = latestId;
+      return;
+    }
+    if (latestId == null || latestId == _lastStaffMessageId) return;
+    _lastStaffMessageId = latestId;
+    context.read<AppState>().notifyStaffReply();
+  }
+
+  void _onAppointments(List<AppointmentRequest> requests) {
+    if (!_appointmentsPrimed) {
+      for (final request in requests) {
+        _appointmentStatus[request.id] = request.status;
+      }
+      _appointmentsPrimed = true;
+      return;
+    }
+    final state = context.read<AppState>();
+    for (final request in requests) {
+      final previous = _appointmentStatus[request.id];
+      if (previous != null &&
+          previous != request.status &&
+          (request.status == AppointmentStatus.confirmed ||
+              request.status == AppointmentStatus.declined)) {
+        state.notifyAppointmentUpdate(
+          window: request.preferredWindow,
+          status: request.status.label.toLowerCase(),
+        );
+      }
+      _appointmentStatus[request.id] = request.status;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 class _LobbyBanner extends StatelessWidget {

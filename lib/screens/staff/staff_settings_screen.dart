@@ -7,6 +7,7 @@ import '../../models/client_models.dart';
 import '../../state/app_state.dart';
 import '../../theme/colors.dart';
 import '../../widgets/common.dart';
+import '../../widgets/notification_settings_card.dart';
 
 /// Everything the firm needs day to day that is not the queue: issue activation
 /// codes, set the two Zoom rooms, and answer appointment requests.
@@ -123,6 +124,8 @@ class _StaffSettingsScreenState extends State<StaffSettingsScreen> {
                   return ListView(
                     padding: const EdgeInsets.all(20),
                     children: [
+                      const NotificationSettingsCard(),
+                      const SizedBox(height: 24),
                       Text(
                         'Meeting rooms',
                         style: Theme.of(context).textTheme.titleMedium,

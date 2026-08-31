@@ -643,17 +643,25 @@ class _StaffUnreadListener extends StatefulWidget {
 
 class _StaffUnreadListenerState extends State<_StaffUnreadListener> {
   StreamSubscription<List<ClientProfile>>? _clientsSub;
+  StreamSubscription<List<AppointmentRequest>>? _appointmentsSub;
   final Map<String, StreamSubscription<List<ChatMessage>>> _threadSubs = {};
+  final Set<String> _primedThreads = {};
+  final Map<String, String> _lastClientMessageId = {};
+  final Set<String> _knownAppointmentIds = {};
+  bool _appointmentsPrimed = false;
 
   @override
   void initState() {
     super.initState();
     _clientsSub = widget.state.staffClients().listen(_syncClients);
+    _appointmentsSub =
+        widget.state.staffAppointments().listen(_onAppointments);
   }
 
   @override
   void dispose() {
     _clientsSub?.cancel();
+    _appointmentsSub?.cancel();
     for (final sub in _threadSubs.values) {
       sub.cancel();
     }
@@ -673,8 +681,56 @@ class _StaffUnreadListenerState extends State<_StaffUnreadListener> {
       _threadSubs[client.threadId] =
           widget.state.threadFor(client.threadId).listen((messages) {
         widget.state.updateUnreadForThread(client.threadId, messages);
+        _alertIfNewClientMessage(client, messages);
       });
     }
+  }
+
+  void _alertIfNewClientMessage(
+    ClientProfile client,
+    List<ChatMessage> messages,
+  ) {
+    ChatMessage? latestClient;
+    for (final message in messages.reversed) {
+      if (message.senderRole == SenderRole.client) {
+        latestClient = message;
+        break;
+      }
+    }
+    final latestId = latestClient?.id;
+    if (!_primedThreads.contains(client.threadId)) {
+      _primedThreads.add(client.threadId);
+      if (latestId != null) _lastClientMessageId[client.threadId] = latestId;
+      return;
+    }
+    if (latestId == null ||
+        latestId == _lastClientMessageId[client.threadId]) {
+      return;
+    }
+    _lastClientMessageId[client.threadId] = latestId;
+    widget.state.notifyNewMessage(fromName: client.name);
+  }
+
+  void _onAppointments(List<AppointmentRequest> requests) {
+    final ids = requests.map((request) => request.id).toSet();
+    if (!_appointmentsPrimed) {
+      _knownAppointmentIds
+        ..clear()
+        ..addAll(ids);
+      _appointmentsPrimed = true;
+      return;
+    }
+    for (final request in requests) {
+      if (_knownAppointmentIds.contains(request.id)) continue;
+      if (request.status != AppointmentStatus.requested) continue;
+      widget.state.notifyNewAppointment(
+        clientName: request.clientName,
+        window: request.preferredWindow,
+      );
+    }
+    _knownAppointmentIds
+      ..clear()
+      ..addAll(ids);
   }
 
   @override
