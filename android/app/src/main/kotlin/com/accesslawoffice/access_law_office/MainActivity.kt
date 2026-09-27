@@ -10,16 +10,27 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                "alf_messages",
-                "Messages",
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = "Chat and lobby alerts"
-                enableVibration(true)
-            }
             val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    "alf_messages",
+                    "Messages",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Chat and lobby alerts"
+                    enableVibration(true)
+                }
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    "alf_lobby",
+                    "Virtual Lobby",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Someone waiting in the Virtual Lobby"
+                    enableVibration(true)
+                }
+            )
         }
     }
 }

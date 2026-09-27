@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../models/client_models.dart';
@@ -23,6 +25,9 @@ class AppState extends ChangeNotifier {
   ClientProfile? client;
   StaffProfile? staff;
   String? lastError;
+  StreamSubscription<LobbyQueueSnapshot>? _queueWatch;
+  Set<String> _knownWaitingIds = {};
+  bool _queueBaselineReady = false;
 
   SessionKind get sessionKind {
     if (client != null) return SessionKind.client;
@@ -181,6 +186,7 @@ class AppState extends ChangeNotifier {
       staff = profile;
       await storage.saveStaffEmail(profile.email);
       await push.start(profile.id);
+      _startStaffQueueWatch();
       notifyListeners();
     } on BackendException catch (e) {
       lastError = e.message;
@@ -190,6 +196,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> staffSignOut() async {
+    await _stopStaffQueueWatch();
     staff = null;
     await storage.clearStaffEmail();
     final b = backend;
@@ -199,6 +206,37 @@ class AppState extends ChangeNotifier {
       await storage.clearAccessToken();
     }
     notifyListeners();
+  }
+
+  void _startStaffQueueWatch() {
+    _queueWatch?.cancel();
+    _knownWaitingIds = {};
+    _queueBaselineReady = false;
+    _queueWatch = backend.watchQueue().listen((snapshot) {
+      final waitingIds = snapshot.items
+          .where((v) => v.status == QueueVisitStatus.waiting)
+          .map((v) => v.id.toString())
+          .toSet();
+      if (!_queueBaselineReady) {
+        _knownWaitingIds = waitingIds;
+        _queueBaselineReady = true;
+        return;
+      }
+      final newcomers = waitingIds.difference(_knownWaitingIds);
+      _knownWaitingIds = waitingIds;
+      if (newcomers.isNotEmpty) {
+        push.showLobbyWaitingAlert();
+      }
+    }, onError: (Object error) {
+      debugPrint('Staff queue watch failed: $error');
+    });
+  }
+
+  Future<void> _stopStaffQueueWatch() async {
+    await _queueWatch?.cancel();
+    _queueWatch = null;
+    _knownWaitingIds = {};
+    _queueBaselineReady = false;
   }
 
   Stream<List<ClientProfile>> staffClients() => backend.watchClients();

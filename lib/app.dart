@@ -27,13 +27,61 @@ abstract final class Routes {
   static const staffSettings = '/staff/settings';
 }
 
-class AccessLawApp extends StatelessWidget {
+/// Used by push tap handlers to open the right screen.
+final GlobalKey<NavigatorState> alfNavigatorKey = GlobalKey<NavigatorState>();
+
+class AccessLawApp extends StatefulWidget {
   const AccessLawApp({super.key});
+
+  @override
+  State<AccessLawApp> createState() => _AccessLawAppState();
+}
+
+class _AccessLawAppState extends State<AccessLawApp> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final state = context.read<AppState>();
+      state.push.onOpened = ({String? type, String? threadId}) {
+        _openFromPush(state, type: type);
+      };
+    });
+  }
+
+  void _openFromPush(
+    AppState state, {
+    String? type,
+  }) {
+    final nav = alfNavigatorKey.currentState;
+    if (nav == null) return;
+
+    if (type == 'lobby_waiting' && state.staff != null) {
+      nav.pushNamedAndRemoveUntil(Routes.staffHome, (route) => false);
+      return;
+    }
+
+    if (type == 'lobby' && state.client != null) {
+      nav.pushNamedAndRemoveUntil(Routes.clientHome, (route) => false);
+      nav.pushNamed(Routes.videoLobby);
+      return;
+    }
+
+    if (type == 'message') {
+      if (state.staff != null) {
+        nav.pushNamedAndRemoveUntil(Routes.staffHome, (route) => false);
+      } else if (state.client != null) {
+        nav.pushNamedAndRemoveUntil(Routes.clientHome, (route) => false);
+        nav.pushNamed(Routes.chat);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Access Law Firm',
+      navigatorKey: alfNavigatorKey,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       initialRoute: Routes.splash,
