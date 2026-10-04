@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/client_models.dart';
 import '../services/app_backend.dart';
+import '../services/firebase_backend.dart';
 import '../services/push_service.dart';
 import '../services/session_storage.dart';
 import '../services/wordpress_backend.dart';
@@ -28,6 +30,10 @@ class AppState extends ChangeNotifier {
   StreamSubscription<LobbyQueueSnapshot>? _queueWatch;
   Set<String> _knownWaitingIds = {};
   bool _queueBaselineReady = false;
+  final Map<String, int> unreadByThread = {};
+  final Map<String, DateTime> _lastReadCache = {};
+  bool notifyMessages = true;
+  bool notifyAppointments = true;
 
   SessionKind get sessionKind {
     if (client != null) return SessionKind.client;
@@ -37,25 +43,165 @@ class AppState extends ChangeNotifier {
 
   bool get usesLiveBackend => backend.isRemote;
 
+  int unreadCountFor(String threadId) => unreadByThread[threadId] ?? 0;
+
+  int get totalClientUnread =>
+      unreadByThread.values.fold(0, (sum, count) => sum + count);
+
+  static int countUnreadClientMessages(
+    List<ChatMessage> messages,
+    DateTime? lastRead,
+  ) {
+    return messages.where((message) {
+      if (message.senderRole != SenderRole.client) return false;
+      if (lastRead == null) return true;
+      return message.createdAt.isAfter(lastRead);
+    }).length;
+  }
+
+  Future<void> updateUnreadForThread(
+    String threadId,
+    List<ChatMessage> messages,
+  ) async {
+    final lastRead =
+        _lastReadCache[threadId] ?? await storage.getStaffLastRead(threadId);
+    if (lastRead != null) _lastReadCache[threadId] = lastRead;
+    final count = countUnreadClientMessages(messages, lastRead);
+    if (unreadByThread[threadId] == count) return;
+    unreadByThread[threadId] = count;
+    notifyListeners();
+  }
+
+  Future<void> markThreadRead(
+    String threadId, {
+    List<ChatMessage>? messages,
+  }) async {
+    var stamp = DateTime.now();
+    if (messages != null && messages.isNotEmpty) {
+      final latest = messages
+          .map((message) => message.createdAt)
+          .reduce((a, b) => a.isAfter(b) ? a : b);
+      if (latest.isAfter(stamp)) stamp = latest;
+      stamp = stamp.add(const Duration(milliseconds: 500));
+    }
+    _lastReadCache[threadId] = stamp;
+    await storage.setStaffLastRead(threadId, stamp);
+    if (unreadByThread[threadId] == 0) return;
+    unreadByThread[threadId] = 0;
+    notifyListeners();
+  }
+
+  void clearUnread(String threadId) {
+    if (!unreadByThread.containsKey(threadId)) return;
+    unreadByThread.remove(threadId);
+    notifyListeners();
+  }
+
   Future<void> bootstrap() async {
     try {
+      await _loadAlertPrefs();
       await backend.initialize();
-      final savedId = await storage.getClientId();
-      if (savedId != null) {
-        final profile = await backend.loadClient(savedId);
-        if (profile != null && profile.active) {
-          client = profile;
-          await push.start(profile.id);
-        } else {
-          await storage.clearClientId();
-        }
+      await _restoreClient();
+      if (client == null) {
+        await _restoreStaff();
       }
     } catch (error) {
       debugPrint('Bootstrap failed: $error');
-      await storage.clearClientId();
     } finally {
       bootstrapped = true;
       notifyListeners();
+    }
+  }
+
+  Future<void> _loadAlertPrefs() async {
+    final prefs = await SharedPreferences.getInstance();
+    notifyMessages = prefs.getBool('notify_messages') ?? true;
+    notifyAppointments = prefs.getBool('notify_appointments') ?? true;
+  }
+
+  Future<void> setNotifyMessages(bool value) async {
+    notifyMessages = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notify_messages', value);
+    if (value) await push.requestPermission();
+    notifyListeners();
+  }
+
+  Future<void> setNotifyAppointments(bool value) async {
+    notifyAppointments = value;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notify_appointments', value);
+    if (value) await push.requestPermission();
+    notifyListeners();
+  }
+
+  Future<void> notifyNewMessage({required String fromName}) async {
+    if (!notifyMessages) return;
+    await push.showAlert(
+      kind: AlertKind.message,
+      title: 'New message',
+      body: '$fromName sent a message.',
+    );
+  }
+
+  Future<void> notifyNewAppointment({
+    required String clientName,
+    required String window,
+  }) async {
+    if (!notifyAppointments) return;
+    await push.showAlert(
+      kind: AlertKind.appointment,
+      title: 'New appointment request',
+      body: '$clientName asked for $window.',
+    );
+  }
+
+  Future<void> notifyAppointmentUpdate({required String window, required String status}) async {
+    if (!notifyAppointments) return;
+    await push.showAlert(
+      kind: AlertKind.appointment,
+      title: 'Appointment update',
+      body: '$window was $status.',
+    );
+  }
+
+  Future<void> notifyStaffReply() async {
+    if (!notifyMessages) return;
+    await push.showAlert(
+      kind: AlertKind.message,
+      title: 'New message',
+      body: 'Your legal team sent a message.',
+    );
+  }
+
+  Future<void> _restoreClient() async {
+    final savedId = await storage.getClientId();
+    if (savedId == null) return;
+    try {
+      final profile = await backend.loadClient(savedId);
+      if (profile != null && profile.active) {
+        client = profile;
+        await push.start(profile.id);
+      } else {
+        await storage.clearClientId();
+      }
+    } catch (error) {
+      debugPrint('Client restore failed: $error');
+    }
+  }
+
+  Future<void> _restoreStaff() async {
+    try {
+      final restored = await backend.restoreStaffSession(
+        savedEmail: await storage.getStaffEmail(),
+      );
+      if (restored == null) return;
+      staff = restored;
+      await storage.saveStaffEmail(restored.email);
+      await storage.saveStaffProfile(restored);
+      await push.start(restored.id);
+    } catch (error) {
+      debugPrint('Staff restore failed: $error');
     }
   }
 
@@ -74,7 +220,10 @@ class AppState extends ChangeNotifier {
         code: code,
       );
       client = profile;
+      staff = null;
       await storage.saveClientId(profile.id);
+      await storage.clearStaffEmail();
+      await storage.clearStaffProfile();
       await push.start(profile.id);
       notifyListeners();
     } on BackendException catch (e) {
@@ -184,7 +333,12 @@ class AppState extends ChangeNotifier {
         throw BackendException(lastError!);
       }
       staff = profile;
-      await storage.saveStaffEmail(profile.email);
+      try {
+        await storage.saveStaffEmail(profile.email);
+        await storage.saveStaffProfile(profile);
+      } catch (error) {
+        debugPrint('Could not persist staff session: $error');
+      }
       await push.start(profile.id);
       _startStaffQueueWatch();
       notifyListeners();
@@ -198,12 +352,14 @@ class AppState extends ChangeNotifier {
   Future<void> staffSignOut() async {
     await _stopStaffQueueWatch();
     staff = null;
-    await storage.clearStaffEmail();
+    unreadByThread.clear();
+    _lastReadCache.clear();
+    await storage.clearStaffSession();
     final b = backend;
     if (b is WordpressBackend) {
       await b.signOut();
-    } else {
-      await storage.clearAccessToken();
+    } else if (b is FirebaseBackend) {
+      await b.signOut();
     }
     notifyListeners();
   }

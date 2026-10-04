@@ -111,5 +111,57 @@ void main() {
       );
       expect(bad, isNull);
     });
+
+    test('staff stay signed in after restore', () async {
+      final signedIn = await backend.staffSignIn(
+        'reception@accesslawfirm.com',
+        'reception123',
+      );
+      expect(signedIn, isNotNull);
+
+      final restored = await backend.restoreStaffSession(
+        savedEmail: 'reception@accesslawfirm.com',
+      );
+      expect(restored?.id, signedIn!.id);
+      expect(restored?.role, StaffRole.receptionist);
+    });
+
+    test('unread count only includes client messages after last read', () {
+      final now = DateTime(2026, 8, 29, 12);
+      final messages = [
+        ChatMessage(
+          id: '1',
+          senderId: 'c1',
+          senderRole: SenderRole.client,
+          senderName: 'Client',
+          body: 'Hello',
+          createdAt: now.subtract(const Duration(minutes: 5)),
+        ),
+        ChatMessage(
+          id: '2',
+          senderId: 's1',
+          senderRole: SenderRole.receptionist,
+          senderName: 'Front Desk',
+          body: 'Hi',
+          createdAt: now.subtract(const Duration(minutes: 3)),
+        ),
+        ChatMessage(
+          id: '3',
+          senderId: 'c1',
+          senderRole: SenderRole.client,
+          senderName: 'Client',
+          body: 'Are you there?',
+          createdAt: now,
+        ),
+      ];
+      expect(AppState.countUnreadClientMessages(messages, null), 2);
+      expect(
+        AppState.countUnreadClientMessages(
+          messages,
+          now.subtract(const Duration(minutes: 1)),
+        ),
+        1,
+      );
+    });
   });
 }

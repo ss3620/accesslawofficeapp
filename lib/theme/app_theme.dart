@@ -77,6 +77,26 @@ abstract final class AppTheme {
           fontWeight: FontWeight.w600,
         ),
       ),
+      tabBarTheme: TabBarThemeData(
+        labelColor: Colors.white,
+        unselectedLabelColor: const Color(0xFFD7E0EA),
+        indicatorColor: AppColors.gold,
+        indicatorSize: TabBarIndicatorSize.label,
+        dividerColor: Colors.transparent,
+        overlayColor: WidgetStateProperty.all(
+          Colors.white.withValues(alpha: 0.08),
+        ),
+        labelStyle: GoogleFonts.sourceSans3(
+          fontWeight: FontWeight.w700,
+          fontSize: 14,
+          color: Colors.white,
+        ),
+        unselectedLabelStyle: GoogleFonts.sourceSans3(
+          fontWeight: FontWeight.w600,
+          fontSize: 14,
+          color: const Color(0xFFD7E0EA),
+        ),
+      ),
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.navy,

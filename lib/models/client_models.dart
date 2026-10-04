@@ -227,8 +227,8 @@ class LobbyState {
 }
 
 class AppointmentRequest {
-  const sourceApp = 'app';
-  const sourceWebsite = 'website';
+  static const sourceApp = 'app';
+  static const sourceWebsite = 'website';
 
   const AppointmentRequest({
     required this.id,
@@ -427,6 +427,13 @@ class StaffProfile {
       role: StaffRole.fromName((map['role'] ?? 'receptionist') as String),
     );
   }
+
+  Map<String, dynamic> toMap() => {
+        'id': id,
+        'name': name,
+        'email': email,
+        'role': role.name,
+      };
 }
 
 DateTime _toDate(Object? value) {

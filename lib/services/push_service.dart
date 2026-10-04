@@ -4,13 +4,16 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 import 'app_backend.dart';
 
-const _channelId = 'alf_messages';
+const _messageChannelId = 'alf_messages';
 const _lobbyChannelId = 'alf_lobby';
+const _appointmentChannelId = 'alf_appointments';
 
 /// Called when the user opens the app from a notification.
 typedef PushOpenHandler = void Function({String? type, String? threadId});
 
-/// FCM registration + display. Bodies stay generic — no case details.
+enum AlertKind { message, appointment, lobby }
+
+/// FCM registration + local banners. Bodies stay generic — no case notes.
 class PushService {
   PushService(this._backend);
 
@@ -25,16 +28,15 @@ class PushService {
   PushOpenHandler? onOpened;
 
   Future<void> start(String ownerId) async {
-    if (!_backend.isRemote) return;
+    if (!_backend.isRemote) {
+      await _ensureLocalNotifications();
+      return;
+    }
     _ownerId = ownerId;
     try {
       await _ensureLocalNotifications();
+      await requestPermission();
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission(
-        alert: true,
-        badge: true,
-        sound: true,
-      );
       await messaging.setForegroundNotificationPresentationOptions(
         alert: true,
         badge: true,
@@ -67,6 +69,76 @@ class PushService {
     }
   }
 
+  Future<bool> requestPermission() async {
+    try {
+      await _ensureLocalNotifications();
+      final messaging = FirebaseMessaging.instance;
+      final settings = await messaging.requestPermission(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      final localOk = await _local
+              .resolvePlatformSpecificImplementation<
+                  IOSFlutterLocalNotificationsPlugin>()
+              ?.requestPermissions(alert: true, badge: true, sound: true) ??
+          true;
+      return localOk &&
+          (settings.authorizationStatus == AuthorizationStatus.authorized ||
+              settings.authorizationStatus == AuthorizationStatus.provisional);
+    } catch (error) {
+      debugPrint('Notification permission skipped: $error');
+      return false;
+    }
+  }
+
+  Future<void> showAlert({
+    required AlertKind kind,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    await _ensureLocalNotifications();
+    final channelId = switch (kind) {
+      AlertKind.lobby => _lobbyChannelId,
+      AlertKind.appointment => _appointmentChannelId,
+      AlertKind.message => _messageChannelId,
+    };
+    final channelName = switch (kind) {
+      AlertKind.lobby => 'Virtual Lobby',
+      AlertKind.appointment => 'Appointments',
+      AlertKind.message => 'Messages',
+    };
+    final description = switch (kind) {
+      AlertKind.lobby => 'Someone waiting in the Virtual Lobby',
+      AlertKind.appointment => 'Appointment requests and updates',
+      AlertKind.message => 'New client messages',
+    };
+    await _local.show(
+      DateTime.now().millisecondsSinceEpoch.remainder(1000000),
+      title,
+      body,
+      NotificationDetails(
+        android: AndroidNotificationDetails(
+          channelId,
+          channelName,
+          channelDescription: description,
+          importance: kind == AlertKind.lobby ? Importance.max : Importance.high,
+          priority: kind == AlertKind.lobby ? Priority.max : Priority.high,
+          icon: '@mipmap/ic_launcher',
+          playSound: true,
+          enableVibration: true,
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBadge: true,
+          presentSound: true,
+        ),
+      ),
+      payload: payload,
+    );
+  }
+
   Future<void> _ensureLocalNotifications() async {
     if (_localReady) return;
     const init = InitializationSettings(
@@ -87,9 +159,9 @@ class PushService {
     await android?.requestNotificationsPermission();
     await android?.createNotificationChannel(
       const AndroidNotificationChannel(
-        _channelId,
+        _messageChannelId,
         'Messages',
-        description: 'Chat and lobby alerts',
+        description: 'New client messages',
         importance: Importance.high,
       ),
     );
@@ -103,43 +175,35 @@ class PushService {
         enableVibration: true,
       ),
     );
+    await android?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        _appointmentChannelId,
+        'Appointments',
+        description: 'Appointment requests and updates',
+        importance: Importance.high,
+      ),
+    );
     _localReady = true;
   }
 
   Future<void> _showForeground(RemoteMessage message) async {
-    final type = message.data['type'];
-    final isLobbyWaiting = type == 'lobby_waiting';
+    final type = message.data['type']?.toString();
     final title = message.notification?.title ?? 'Access Law Firm';
+    final kind = switch (type) {
+      'lobby_waiting' => AlertKind.lobby,
+      'appointment' => AlertKind.appointment,
+      _ => AlertKind.message,
+    };
     final body = message.notification?.body ??
-        (isLobbyWaiting
-            ? 'Someone is waiting in the Virtual Lobby.'
-            : 'You have a new message.');
-    final channel = isLobbyWaiting ? _lobbyChannelId : _channelId;
-    final channelName = isLobbyWaiting ? 'Virtual Lobby' : 'Messages';
-
-    await _local.show(
-      message.hashCode,
-      title,
-      body,
-      NotificationDetails(
-        android: AndroidNotificationDetails(
-          channel,
-          channelName,
-          channelDescription: isLobbyWaiting
-              ? 'Someone waiting in the Virtual Lobby'
-              : 'Chat and lobby alerts',
-          importance: isLobbyWaiting ? Importance.max : Importance.high,
-          priority: isLobbyWaiting ? Priority.max : Priority.high,
-          icon: '@mipmap/ic_launcher',
-          playSound: true,
-          enableVibration: true,
-        ),
-        iOS: const DarwinNotificationDetails(
-          presentAlert: true,
-          presentBadge: true,
-          presentSound: true,
-        ),
-      ),
+        switch (kind) {
+          AlertKind.lobby => 'Someone is waiting in the Virtual Lobby.',
+          AlertKind.appointment => 'You have an appointment update.',
+          AlertKind.message => 'You have a new message.',
+        };
+    await showAlert(
+      kind: kind,
+      title: title,
+      body: body,
       payload: _payloadFrom(message.data),
     );
   }
@@ -147,28 +211,10 @@ class PushService {
   /// Local alert when staff queue polling sees a new waiting visitor.
   Future<void> showLobbyWaitingAlert() async {
     try {
-      await _ensureLocalNotifications();
-      await _local.show(
-        DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        'Access Law Firm',
-        'Someone is waiting in the Virtual Lobby.',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _lobbyChannelId,
-            'Virtual Lobby',
-            channelDescription: 'Someone waiting in the Virtual Lobby',
-            importance: Importance.max,
-            priority: Priority.max,
-            icon: '@mipmap/ic_launcher',
-            playSound: true,
-            enableVibration: true,
-          ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: true,
-            presentSound: true,
-          ),
-        ),
+      await showAlert(
+        kind: AlertKind.lobby,
+        title: 'Access Law Firm',
+        body: 'Someone is waiting in the Virtual Lobby.',
         payload: 'type=lobby_waiting',
       );
     } catch (error) {

@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/client_models.dart';
 import 'app_backend.dart';
 import 'firebase_chat_service.dart';
@@ -345,29 +347,74 @@ class WordpressBackend implements AppBackend {
   @override
   Future<StaffProfile?> staffSignIn(String email, String password) async {
     final data = await _api.post('/auth/login', body: {
-      'email': email,
-      'username': email,
+      'email': email.trim(),
+      'username': email.trim(),
       'password': password,
     }) as Map<String, dynamic>;
 
     final token = data['token'] as String?;
-    final staffMap = data['staff'] as Map<String, dynamic>?;
-    if (token == null || staffMap == null) {
+    final staffMap = data['staff'] is Map<String, dynamic>
+        ? data['staff'] as Map<String, dynamic>
+        : null;
+    final id = staffMap?['id']?.toString();
+    if (token == null ||
+        token.isEmpty ||
+        staffMap == null ||
+        id == null ||
+        id.isEmpty) {
       return null;
     }
     await _persistToken(token);
-    final staff = StaffProfile.fromMap(staffMap['id'] as String, staffMap);
+    final staff = StaffProfile.fromMap(id, staffMap);
+    try {
+      await _storage.saveStaffProfile(staff);
+      await _storage.saveStaffEmail(staff.email);
+    } catch (error) {
+      debugPrint('Could not persist staff session: $error');
+    }
 
     final chat = _chat;
     if (chat != null) {
-      await chat.ensureStaffSession(
-        email: email,
-        password: password,
-        displayName: staff.name,
-        role: staff.role,
-      );
+      try {
+        await chat.ensureStaffSession(
+          email: email.trim(),
+          password: password,
+          displayName: staff.name,
+          role: staff.role,
+        );
+      } catch (error) {
+        debugPrint('Firebase staff chat session skipped: $error');
+      }
     }
     return staff;
+  }
+
+  @override
+  Future<StaffProfile?> restoreStaffSession({String? savedEmail}) async {
+    final token = await _storage.getAccessToken();
+    if (token == null || token.isEmpty) return null;
+    _api.accessToken = token;
+
+    final cached = await _storage.getStaffProfile();
+    for (final path in ['/auth/me', '/staff/me']) {
+      try {
+        final data = await _api.get(path) as Map<String, dynamic>;
+        final raw = data['staff'] is Map<String, dynamic>
+            ? data['staff'] as Map<String, dynamic>
+            : data;
+        final id = (raw['id'] ?? savedEmail ?? '').toString();
+        if (id.isEmpty || raw['email'] == null && raw['name'] == null) {
+          continue;
+        }
+        final staff = StaffProfile.fromMap(id, raw);
+        await _storage.saveStaffProfile(staff);
+        return staff;
+      } on BackendException {
+        continue;
+      }
+    }
+
+    return cached;
   }
 
   @override
@@ -452,6 +499,7 @@ class WordpressBackend implements AppBackend {
     }
     await _chat?.signOut();
     await _persistToken(null);
+    await _storage.clearStaffSession();
   }
 }
 

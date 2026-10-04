@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -27,11 +29,38 @@ class StaffHomeScreen extends StatelessWidget {
         backgroundColor: AppColors.cream,
         appBar: AppBar(
           title: Text('${staff.role.label} desk'),
-          bottom: const TabBar(
+          bottom: TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: const Color(0xFFD7E0EA),
+            indicatorColor: AppColors.gold,
+            indicatorWeight: 3,
+            dividerColor: Colors.transparent,
+            overlayColor: WidgetStateProperty.all(
+              Colors.white.withValues(alpha: 0.08),
+            ),
+            labelStyle: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontSize: 14,
+            ),
+            unselectedLabelStyle: const TextStyle(
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
             tabs: [
-              Tab(text: 'Live queue'),
-              Tab(text: 'Appointments'),
-              Tab(text: 'App clients'),
+              const Tab(text: 'Live queue'),
+              const Tab(text: 'Appointments'),
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('App clients'),
+                    if (state.totalClientUnread > 0) ...[
+                      const SizedBox(width: 6),
+                      UnreadBadge(count: state.totalClientUnread, compact: true),
+                    ],
+                  ],
+                ),
+              ),
             ],
           ),
           actions: [
@@ -55,11 +84,16 @@ class StaffHomeScreen extends StatelessWidget {
             ),
           ],
         ),
-        body: TabBarView(
+        body: Stack(
           children: [
-            _LiveQueueTab(state: state),
-            _AppointmentsTab(state: state),
-            _AppClientsTab(state: state),
+            TabBarView(
+              children: [
+                _LiveQueueTab(state: state),
+                _AppointmentsTab(state: state),
+                _AppClientsTab(state: state),
+              ],
+            ),
+            _StaffUnreadListener(state: state),
           ],
         ),
       ),
@@ -274,6 +308,9 @@ class _QueueVisitRow extends StatelessWidget {
                 if (visit.isAppClient)
                   _ActionChip(
                     label: 'Open chat',
+                    unread: visit.appClientId == null
+                        ? 0
+                        : state.unreadCountFor(visit.appClientId!),
                     onTap: () => _openChat(context),
                   ),
               ],
@@ -490,7 +527,8 @@ class _ClientRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.read<AppState>();
+    final state = context.watch<AppState>();
+    final unread = state.unreadCountFor(client.threadId);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -511,6 +549,8 @@ class _ClientRow extends StatelessWidget {
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                     ),
+                    UnreadBadge(count: unread),
+                    if (unread > 0) const SizedBox(width: 8),
                     StatusPill(
                       label: lobby.status.label,
                       color: _statusColor(lobby.status),
@@ -541,6 +581,7 @@ class _ClientRow extends StatelessWidget {
                     ),
                     _ActionChip(
                       label: 'Open chat',
+                      unread: unread,
                       onTap: () => Navigator.of(context).pushNamed(
                         Routes.staffClient,
                         arguments: client,
@@ -558,15 +599,29 @@ class _ClientRow extends StatelessWidget {
 }
 
 class _ActionChip extends StatelessWidget {
-  const _ActionChip({required this.label, required this.onTap});
+  const _ActionChip({
+    required this.label,
+    required this.onTap,
+    this.unread = 0,
+  });
 
   final String label;
   final VoidCallback onTap;
+  final int unread;
 
   @override
   Widget build(BuildContext context) {
     return ActionChip(
-      label: Text(label),
+      label: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label),
+          if (unread > 0) ...[
+            const SizedBox(width: 6),
+            UnreadBadge(count: unread, compact: true),
+          ],
+        ],
+      ),
       onPressed: onTap,
       labelStyle: const TextStyle(
         color: AppColors.navy,
@@ -574,4 +629,110 @@ class _ActionChip extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Keeps unread counts live on the desk without opening each chat.
+class _StaffUnreadListener extends StatefulWidget {
+  const _StaffUnreadListener({required this.state});
+
+  final AppState state;
+
+  @override
+  State<_StaffUnreadListener> createState() => _StaffUnreadListenerState();
+}
+
+class _StaffUnreadListenerState extends State<_StaffUnreadListener> {
+  StreamSubscription<List<ClientProfile>>? _clientsSub;
+  StreamSubscription<List<AppointmentRequest>>? _appointmentsSub;
+  final Map<String, StreamSubscription<List<ChatMessage>>> _threadSubs = {};
+  final Set<String> _primedThreads = {};
+  final Map<String, String> _lastClientMessageId = {};
+  final Set<String> _knownAppointmentIds = {};
+  bool _appointmentsPrimed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _clientsSub = widget.state.staffClients().listen(_syncClients);
+    _appointmentsSub =
+        widget.state.staffAppointments().listen(_onAppointments);
+  }
+
+  @override
+  void dispose() {
+    _clientsSub?.cancel();
+    _appointmentsSub?.cancel();
+    for (final sub in _threadSubs.values) {
+      sub.cancel();
+    }
+    _threadSubs.clear();
+    super.dispose();
+  }
+
+  void _syncClients(List<ClientProfile> clients) {
+    final active = {for (final client in clients) client.threadId: client};
+    for (final threadId in _threadSubs.keys.toList()) {
+      if (active.containsKey(threadId)) continue;
+      _threadSubs.remove(threadId)?.cancel();
+      widget.state.clearUnread(threadId);
+    }
+    for (final client in clients) {
+      if (_threadSubs.containsKey(client.threadId)) continue;
+      _threadSubs[client.threadId] =
+          widget.state.threadFor(client.threadId).listen((messages) {
+        widget.state.updateUnreadForThread(client.threadId, messages);
+        _alertIfNewClientMessage(client, messages);
+      });
+    }
+  }
+
+  void _alertIfNewClientMessage(
+    ClientProfile client,
+    List<ChatMessage> messages,
+  ) {
+    ChatMessage? latestClient;
+    for (final message in messages.reversed) {
+      if (message.senderRole == SenderRole.client) {
+        latestClient = message;
+        break;
+      }
+    }
+    final latestId = latestClient?.id;
+    if (!_primedThreads.contains(client.threadId)) {
+      _primedThreads.add(client.threadId);
+      if (latestId != null) _lastClientMessageId[client.threadId] = latestId;
+      return;
+    }
+    if (latestId == null ||
+        latestId == _lastClientMessageId[client.threadId]) {
+      return;
+    }
+    _lastClientMessageId[client.threadId] = latestId;
+    widget.state.notifyNewMessage(fromName: client.name);
+  }
+
+  void _onAppointments(List<AppointmentRequest> requests) {
+    final ids = requests.map((request) => request.id).toSet();
+    if (!_appointmentsPrimed) {
+      _knownAppointmentIds
+        ..clear()
+        ..addAll(ids);
+      _appointmentsPrimed = true;
+      return;
+    }
+    for (final request in requests) {
+      if (_knownAppointmentIds.contains(request.id)) continue;
+      if (request.status != AppointmentStatus.requested) continue;
+      widget.state.notifyNewAppointment(
+        clientName: request.clientName,
+        window: request.preferredWindow,
+      );
+    }
+    _knownAppointmentIds
+      ..clear()
+      ..addAll(ids);
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

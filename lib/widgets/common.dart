@@ -150,6 +150,41 @@ class StatusPill extends StatelessWidget {
   }
 }
 
+class UnreadBadge extends StatelessWidget {
+  const UnreadBadge({
+    super.key,
+    required this.count,
+    this.compact = false,
+  });
+
+  final int count;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    if (count <= 0) return const SizedBox.shrink();
+    final label = count > 99 ? '99+' : '$count';
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 6 : 8,
+        vertical: compact ? 2 : 3,
+      ),
+      decoration: BoxDecoration(
+        color: AppColors.danger,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        compact ? label : (count == 1 ? '1 new' : '$label new'),
+        style: TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: compact ? 10 : 11,
+        ),
+      ),
+    );
+  }
+}
+
 class PrimaryButton extends StatelessWidget {
   const PrimaryButton({
     super.key,
