@@ -194,9 +194,11 @@ class WordpressBackend implements AppBackend {
   }
 
   @override
-  Future<void> enterLobby(ClientProfile client) async {
-    final data = await _api.post('/lobby/clients/${client.id}')
-        as Map<String, dynamic>;
+  Future<void> enterLobby(ClientProfile client, {required String phone}) async {
+    final data = await _api.post(
+      '/lobby/clients/${client.id}',
+      body: {'phone': phone},
+    ) as Map<String, dynamic>;
     final visitId = data['visitId'];
     if (visitId != null) {
       _visitByClient[client.id] = int.tryParse('$visitId') ?? 0;

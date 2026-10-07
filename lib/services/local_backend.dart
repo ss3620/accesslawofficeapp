@@ -194,7 +194,10 @@ class LocalBackend implements AppBackend {
   }
 
   @override
-  Future<void> enterLobby(ClientProfile client) async {
+  Future<void> enterLobby(ClientProfile client, {required String phone}) async {
+    if (phone.trim().isEmpty) {
+      throw BackendException('Please enter a valid phone number.');
+    }
     final waiting = _lobbies.values
         .where((l) => l.status == LobbyStatus.waiting)
         .length;

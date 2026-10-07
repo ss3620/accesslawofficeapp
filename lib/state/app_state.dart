@@ -274,10 +274,10 @@ class AppState extends ChangeNotifier {
     );
   }
 
-  Future<void> enterLobby() async {
+  Future<void> enterLobby({required String phone}) async {
     final profile = client;
     if (profile == null) return;
-    await backend.enterLobby(profile);
+    await backend.enterLobby(profile, phone: phone);
   }
 
   Future<void> leaveLobby() async {

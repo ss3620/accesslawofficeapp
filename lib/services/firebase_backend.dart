@@ -162,11 +162,12 @@ class FirebaseBackend implements AppBackend {
   }
 
   @override
-  Future<void> enterLobby(ClientProfile client) async {
+  Future<void> enterLobby(ClientProfile client, {required String phone}) async {
     final zoom = await loadZoomLinks();
     await _db.collection(lobbyCollection).doc(client.id).set({
       'status': LobbyStatus.waiting.name,
       'clientName': client.name,
+      'phone': phone,
       'receptionZoomUrl': zoom['receptionZoomUrl'] ?? '',
       'attorneyZoomUrl': zoom['attorneyZoomUrl'] ?? '',
       'enteredAt': FieldValue.serverTimestamp(),

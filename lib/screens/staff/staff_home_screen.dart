@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../app.dart';
 import '../../models/client_models.dart';
@@ -269,7 +270,19 @@ class _QueueVisitRow extends StatelessWidget {
             ],
             if (visit.phone.isNotEmpty && visit.phone != '—') ...[
               const SizedBox(height: 4),
-              Text('Phone: ${visit.phone}'),
+              InkWell(
+                onTap: () {
+                  final dial = visit.phone.replaceAll(RegExp(r'[^\d+]'), '');
+                  if (dial.isEmpty) return;
+                  launchUrl(Uri.parse('tel:$dial'));
+                },
+                child: Text(
+                  'Phone: ${visit.phone}',
+                  style: const TextStyle(
+                    decoration: TextDecoration.underline,
+                  ),
+                ),
+              ),
             ],
             if (visit.status == QueueVisitStatus.waiting) ...[
               const SizedBox(height: 4),

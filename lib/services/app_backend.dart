@@ -36,7 +36,7 @@ abstract class AppBackend {
 
   Stream<LobbyState> watchLobby(String clientId);
 
-  Future<void> enterLobby(ClientProfile client);
+  Future<void> enterLobby(ClientProfile client, {required String phone});
 
   Future<void> leaveLobby(String clientId);
 

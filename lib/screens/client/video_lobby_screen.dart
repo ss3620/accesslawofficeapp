@@ -19,6 +19,7 @@ class VideoLobbyScreen extends StatefulWidget {
 
 class _VideoLobbyScreenState extends State<VideoLobbyScreen> {
   late final Stream<LobbyState> _lobby;
+  final TextEditingController _phoneCtrl = TextEditingController();
   bool _checkingIn = false;
   bool _leaving = false;
 
@@ -26,6 +27,12 @@ class _VideoLobbyScreenState extends State<VideoLobbyScreen> {
   void initState() {
     super.initState();
     _lobby = context.read<AppState>().clientLobby();
+  }
+
+  @override
+  void dispose() {
+    _phoneCtrl.dispose();
+    super.dispose();
   }
 
   Future<void> _join(String url) async {
@@ -45,9 +52,18 @@ class _VideoLobbyScreenState extends State<VideoLobbyScreen> {
   }
 
   Future<void> _checkIn() async {
+    final digits = _phoneCtrl.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length < 10) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Enter a valid mobile number so we can call you.'),
+        ),
+      );
+      return;
+    }
     setState(() => _checkingIn = true);
     try {
-      await context.read<AppState>().enterLobby();
+      await context.read<AppState>().enterLobby(phone: _phoneCtrl.text.trim());
     } on BackendException catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -145,12 +161,25 @@ class _VideoLobbyScreenState extends State<VideoLobbyScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  if (lobby.status == LobbyStatus.idle)
+                  if (lobby.status == LobbyStatus.idle) ...[
+                    TextField(
+                      controller: _phoneCtrl,
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                        labelText: 'Mobile phone number',
+                        hintText: '(713) 555-0123',
+                        helperText:
+                            'If we miss you in the lobby, we will call this number.',
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     PrimaryButton(
                       label: 'Check in to the lobby',
                       loading: _checkingIn,
                       onPressed: _checkingIn ? null : _checkIn,
                     ),
+                  ],
                   if (lobby.status == LobbyStatus.waiting) ...[
                     const _WaitingGuidance(),
                     const SizedBox(height: 20),
