@@ -40,10 +40,10 @@ abstract final class DefaultFirebaseOptions {
 
   static const FirebaseOptions ios = FirebaseOptions(
     apiKey: 'AIzaSyAAbdhuC_EMBg9zIaQNG2GJYt4nqwcpwyA',
-    appId: '1:205875883184:ios:9d1c0fe9d252b7e8d45f75',
+    appId: '1:205875883184:ios:2779af5590c401b8d45f75',
     messagingSenderId: '205875883184',
     projectId: 'access-law-firm',
     storageBucket: 'access-law-firm.firebasestorage.app',
-    iosBundleId: 'com.accesslawoffice.accessLawOffice',
+    iosBundleId: 'com.accesslawoffice.accessLawFirm',
   );
 }
